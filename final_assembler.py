@@ -8,9 +8,12 @@ sys.setrecursionlimit(10**6)
 
 """ Implementing an Assembler
 
+    The assembler must handle both regular reads and read-pairs. For the latter problem,
+    a paired de Bruijn graph can be defined. 
+
     Data Sets Tested Against:
     N. deltocephalinicola                - t = 34000,   len = 100,    coverage: 30
-    N. deltocephalinicola (read-pairs)   - t = 19679,   len = varies, coverage: varies
+    N. deltocephalinicola (read-pairs)   - t = 19679,   len = varies, coverage: unknown (likely around 30)
     E. Coli O104                         - t = 1400000, len = 100,    coverage: 25
     E. Coli O104          (read-pairs)   - t = 700000,  len = 100,    coverage: 25
 
@@ -19,10 +22,16 @@ sys.setrecursionlimit(10**6)
     We can ignore bubbles and tips after this.
 
     TO DO:
-    Modify EulerianPathConstructor to return contigs instead of whole genome.
+    Modify EulerianPathConstructor to return contigs instead of whole genome. (Contig Enumerator?)
+        Contigs are continuous, non-branching segments.
+        Where to start to ensure long contigs?
     Figure out a good value for k to break reads down into.
-    Figure out a filter threshold (likely still 5...).
-    Figure out point of read-pairs and how to process them.
+        15 - 20 is used by msot assemblers
+    Figure out a filter threshold (likely still 5, maybe 4 for E. Coli, less for read pairs or not?).
+        How to account for multiplicity? Can we ignore or not?
+        Query statistics?
+    Modify Node to optionally take read-pair and distance d
+    Figure how to merge unnecessary edges. (do edges need a new representation? or nodes...?)
 """
 
 
@@ -70,46 +79,6 @@ class EulerianPathConstructor:
                 self.nodes[suffix].add_edge(prefix)
                 self.nodes[prefix].in_degree += 1
             self.num_edges += 1
-
-    def depth_limited_dfs_from_node(self, depth, node_id, bubble_counter):
-        ''' DFS from a single node a limited depth. 
-            Allows for multi-visits purposely to enumerate all path candidates
-        '''
-
-        process_queue = list()
-        branch = False
-
-        # Seed with unique paths from the starting node
-        for next_node_id in self.nodes[node_id].edges:
-            if node_id == next_node_id:
-                continue
-            process_queue.append(
-                (next_node_id, node_id, depth-1, ShortPath([node_id], {node_id: True})))
-
-        while process_queue:
-            cur_node_id, _, cur_depth, cur_short_path = process_queue.pop()
-            cur_short_path.add_node(cur_node_id)
-
-            # Stop and record current path if no more edges or out of depth.
-            if cur_depth <= 0 or len(self.nodes[cur_node_id].edges) == 0:
-                bubble_counter.short_paths.append(cur_short_path)
-                continue
-
-            # Checks indegree and outdegree for whether we should save the current path as a candidate
-            if bubble_counter.path_constructor.nodes[cur_node_id].out_degree > 1 or bubble_counter.path_constructor.nodes[cur_node_id].in_degree > 1:
-                bubble_counter.short_paths.append(cur_short_path)
-                branch = True
-            else:
-                branch = False
-
-            for next_node_id in self.nodes[cur_node_id].edges:
-                if cur_node_id == next_node_id:
-                    continue
-                # Branches by adding current path as candidate, then making a copy for each edge
-                if branch:
-                    cur_short_path = cur_short_path.branch_path()
-                process_queue.append(
-                    (next_node_id, cur_node_id, cur_depth-1, cur_short_path))
 
     def dfs(self, cur_node_id, visited, post_visit=None):
         if cur_node_id in visited and visited[cur_node_id]:
@@ -293,52 +262,6 @@ class Tour:
         return self.path[0]
 
 
-class TipRemover:
-    def __init__(self, path_constructor, rev_constructor):
-        self.path_constructor = path_constructor
-        self.rev_constructor = rev_constructor
-        self.removed_tips_count = 0
-        # For revese graph to find order of sinks
-        self.clock = 0
-
-    def remove_all_tips(self):
-        self.post_clock_dfs(self.rev_constructor)
-
-        def clock_val(node_id):
-            return self.rev_constructor.nodes[node_id].clock_val
-
-        node_id_descending_by_clock = sorted(
-            self.rev_constructor.nodes, key=clock_val, reverse=True)
-
-        visited = defaultdict(bool)
-        for scc_start_node_id in node_id_descending_by_clock:
-            self.num_nodes_in_cur_scc = 0
-            if scc_start_node_id not in visited:
-                self.path_constructor.dfs(
-                    scc_start_node_id, visited, self.count_nodes_in_scc)
-                if self.num_nodes_in_cur_scc == 1:
-                    self.removed_tips_count += 1
-                # Would actually remove here if I had to.
-
-        return self.path_constructor
-
-    def count_nodes_in_scc(self, graph, node_id):
-        """ Visit function for DFS to count the number of nodes in the current SCC """
-        self.num_nodes_in_cur_scc += 1
-
-    def post_clock_dfs(self, graph):
-        """ Started the DFS on the selected graph using the clock post-visit function """
-        visited = defaultdict(bool)
-        for node_id in graph.nodes:
-            if node_id not in visited or visited[node_id] == False:
-                graph.dfs(node_id, visited, self.clock_this_node)
-
-    def clock_this_node(self, graph, node_id):
-        """ Post-visit function for DFS to label each node with a clock value """
-        graph.nodes[node_id].clock_val = self.clock
-        self.clock += 1
-
-
 class ReadBreaker:
     ''' Takes input, breaks down into k-1-mers, builds a EulerianPathConstructor as a graph'''
 
@@ -346,7 +269,7 @@ class ReadBreaker:
     def read_input():
         ''' Returns a list of reads, not yet broken down. '''
         reads = list()
-        kmer_len = 20
+        kmer_len = 20  # 15-20
         for read in sys.stdin:
             reads.append(read.split()[0])
         return (kmer_len, reads)
@@ -357,7 +280,7 @@ class ReadBreaker:
         return [read[i:i+k-1] for i in range(len(read)-(k-2))]
 
     @staticmethod
-    def build_path_constructor_and_reverse(reads, kmer_len):
+    def build_path_constructor(reads, kmer_len):
         ''' Builds the path constructor with coverage considerations
             i.e. Filter out edges with coverage under our set Hamming distance
         '''
@@ -394,8 +317,7 @@ class ReadBreaker:
 
 def main():
     k, reads = ReadBreaker.read_input()
-    path_constructor = ReadBreaker.build_path_constructor_and_reverse(
-        reads, k)
+    path_constructor = ReadBreaker.build_path_constructor(reads, k)
     found, path = path_constructor.build_eulerian_path()
     if found:
         print("".join(map(str, path)))
