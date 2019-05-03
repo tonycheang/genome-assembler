@@ -9,7 +9,8 @@ sys.setrecursionlimit(10**6)
 """ Implementing an Assembler
 
     The assembler must handle both regular reads and read-pairs. For the latter problem,
-    a paired de Bruijn graph can be defined. 
+    a paired de Bruijn graph can be defined. Instead of outputting an Eulerian path--unique
+    construction can be rare--this assembler outputs contigs (non-branching segments).
 
     Data Sets Tested Against:
     N. deltocephalinicola                - t = 34000,   len = 100,    coverage: 30
@@ -22,72 +23,36 @@ sys.setrecursionlimit(10**6)
     We can ignore bubbles and tips after this.
 
     TO DO:
-    Modify EulerianPathConstructor to return contigs instead of whole genome. (Contig Enumerator?)
-        Contigs are continuous, non-branching segments.
+    Modify DeBruijnGraph to return contigs instead of whole genome.
+        Traverse backward until find node with branching, then take previous (non branching start)
         Where to start to ensure long contigs?
-    Figure out a good value for k to break reads down into.
-        15 - 20 is used by msot assemblers
     Figure out a filter threshold (likely still 5, maybe 4 for E. Coli, less for read pairs or not?).
         How to account for multiplicity? Can we ignore or not?
         Query statistics?
     Modify Node to optionally take read-pair and distance d
+    Modify readInput to check for read-pair or regular read
     Figure how to merge unnecessary edges. (do edges need a new representation? or nodes...?)
 """
 
+# ... Do I actually just scrap most of this class?
 
-class EulerianPathConstructor:
-    ''' Single use class since we don't save the graph permanently '''
 
-    def __init__(self):
+class DeBruijnGraph:
+    KMER_LEN = 20
+    HAMMING_DIST = 5
+
+    def __init__(self, reads):
         self.num_edges = 0
         # Indexed by ID or prefix/suffix
         self.nodes = dict()
         self.tours_with_available_edges = list()
         self.unique_edge_counts = defaultdict(int)
         self.tours_in_order = deque()
+        self._build_graph(reads)
 
-    def has_node(self, id_):
-        return id_ in self.nodes
-
-    def add_node(self, node):
-        self.nodes[node.id] = node
-
-    def add_edges_from_k_minus_one_mers(self, k_minus_one_mers, reverse=False):
-        ''' Add unique edges for the bubble counting problem. Ignores multiplicity. 
-            Reverse creates edges from suffix to prefix to build a reverse graph.
-        '''
-        def pairwise(iterable):
-            "s -> (s0,s1), (s1,s2), (s2, s3), ... (FROM ITERTOOLS)"
-            a, b = tee(iterable)
-            next(b, None)
-            return zip(a, b)
-
-        for prefix, suffix in pairwise(k_minus_one_mers):
-            self.unique_edge_counts[(prefix, suffix)] += 1
-            if (prefix, suffix) in self.unique_edge_counts:
-                continue
-
-            if not self.has_node(prefix):
-                self.add_node(Node(prefix))
-            if not self.has_node(suffix):
-                self.add_node(Node(suffix))
-
-            if not reverse:
-                self.nodes[prefix].add_edge(suffix)
-                self.nodes[suffix].in_degree += 1
-            else:
-                self.nodes[suffix].add_edge(prefix)
-                self.nodes[prefix].in_degree += 1
-            self.num_edges += 1
-
-    def dfs(self, cur_node_id, visited, post_visit=None):
-        if cur_node_id in visited and visited[cur_node_id]:
-            return
-        visited[cur_node_id] = True
-        for next_node_id in self.nodes[cur_node_id].edges:
-            self.dfs(next_node_id, visited, post_visit)
-        if post_visit is not None:
-            post_visit(self, cur_node_id)
+    # Use following methods as reference to build contigs, since it a similar process
+    # In fact, might be easier since we don't have to join the contigs.
+    # Just might want to travel upstream...
 
     def build_eulerian_path(self):
         ''' Builds tours to save in class, then reconstructs based off build order. '''
@@ -191,6 +156,41 @@ class EulerianPathConstructor:
                 return (False, None)
         return (True, circular_path)
 
+    def _build_graph(self, reads):
+        ''' Builds the path constructor with coverage considerations
+            i.e. Filter out edges with coverage under our set Hamming distance
+        '''
+        def pairwise(iterable):
+            "s -> (s0,s1), (s1,s2), (s2, s3), ... (FROM ITERTOOLS)"
+            a, b = tee(iterable)
+            next(b, None)
+            return zip(a, b)
+
+        edge_counts = defaultdict(int)
+        for cur_read in reads:
+            k_minus_one_mers = DeBruijnGraph._break_read_into_k_minus_one_mers(
+                DeBruijnGraph.KMER_LEN, cur_read)
+
+            for prefix, suffix in pairwise(k_minus_one_mers):
+                edge_counts[(prefix, suffix)] += 1
+
+        for edge, count in edge_counts.items():
+            prefix, suffix = edge[0], edge[1]
+            if count > DeBruijnGraph.HAMMING_DISTANCE:
+                if prefix not in self.nodes:
+                    self.nodes[prefix] = Node(prefix)
+                if suffix not in self.nodes:
+                    self.nodes[suffix] = Node(suffix)
+
+                self.nodes[prefix].add_edge(suffix)
+                self.nodes[suffix].in_degree += 1
+                self.num_edges += 1
+
+    @staticmethod
+    def _break_read_into_k_minus_one_mers(k, read):
+        ''' Breaks into list of prefixes and suffixes. '''
+        return [read[i:i+k-1] for i in range(len(read)-(k-2))]
+
 
 class Node:
     def __init__(self, id_):
@@ -200,9 +200,10 @@ class Node:
         self.edges = list()
         self.tours = list()
         self.in_degree = 0
-        # Values for tip removal
-        self.clock_val = -1
-        self.scc_num = -1
+
+    @property
+    def out_degree(self):
+        return len(self.edges)
 
     def get_edge(self):
         ''' Gets and removes an edge. '''
@@ -210,10 +211,6 @@ class Node:
         if not self.edges:
             self.notify_tours_no_available_edges()
         return edge
-
-    @property
-    def out_degree(self):
-        return len(self.edges)
 
     def has_available_edges(self):
         return bool(self.edges)
@@ -262,67 +259,26 @@ class Tour:
         return self.path[0]
 
 
-class ReadBreaker:
-    ''' Takes input, breaks down into k-1-mers, builds a EulerianPathConstructor as a graph'''
+def read_input():
+    ''' Returns a list of reads, not yet broken down. '''
+    reads = list()
+    for read in sys.stdin:
+        reads.append(read.split()[0])
+    return reads
 
-    @staticmethod
-    def read_input():
-        ''' Returns a list of reads, not yet broken down. '''
-        reads = list()
-        kmer_len = 20  # 15-20
-        for read in sys.stdin:
-            reads.append(read.split()[0])
-        return (kmer_len, reads)
 
-    @staticmethod
-    def _break_read_into_k_minus_one_mers(k, read):
-        ''' Breaks into list of prefixes and suffixes. '''
-        return [read[i:i+k-1] for i in range(len(read)-(k-2))]
-
-    @staticmethod
-    def build_path_constructor(reads, kmer_len):
-        ''' Builds the path constructor with coverage considerations
-            i.e. Filter out edges with coverage under our set Hamming distance
-        '''
-        def pairwise(iterable):
-            "s -> (s0,s1), (s1,s2), (s2, s3), ... (FROM ITERTOOLS)"
-            a, b = tee(iterable)
-            next(b, None)
-            return zip(a, b)
-
-        HAMMING_DISTANCE = 5
-        path_constructor = EulerianPathConstructor()
-        edge_counts = defaultdict(int)
-        for cur_read in reads:
-            k_minus_one_mers = ReadBreaker._break_read_into_k_minus_one_mers(
-                kmer_len, cur_read)
-
-            for prefix, suffix in pairwise(k_minus_one_mers):
-                edge_counts[(prefix, suffix)] += 1
-
-        for edge, count in edge_counts.items():
-            prefix, suffix = edge[0], edge[1]
-            if count > HAMMING_DISTANCE:
-                if not path_constructor.has_node(prefix):
-                    path_constructor.add_node(Node(prefix))
-                if not path_constructor.has_node(suffix):
-                    path_constructor.add_node(Node(suffix))
-
-                path_constructor.nodes[prefix].add_edge(suffix)
-                path_constructor.nodes[suffix].in_degree += 1
-                path_constructor.num_edges += 1
-
-        return path_constructor
+def format_output(contigs):
+    pass
 
 
 def main():
-    k, reads = ReadBreaker.read_input()
-    path_constructor = ReadBreaker.build_path_constructor(reads, k)
-    found, path = path_constructor.build_eulerian_path()
-    if found:
-        print("".join(map(str, path)))
-    else:
-        print("NOT FOUND")
+    reads = read_input()
+    graph = DeBruijnGraph(reads)
+    # found, path = graph.build_eulerian_path()
+    # if found:
+    #     print("".join(map(str, path)))
+    # else:
+    #     print("NOT FOUND")
 
 
 if __name__ == "__main__":
