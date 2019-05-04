@@ -52,7 +52,7 @@ def main():
     genome = read_input()
     # reads = generate_reads(genome, paired=True, d=500)
     reads = generate_reads(genome, paired=True,
-                           read_len=100, num_reads=100, d=400, delta=5)
+                           read_len=100, num_reads=34000, d=400, delta=3)
     output_reads(reads)
 
 
