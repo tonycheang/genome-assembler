@@ -4,9 +4,7 @@ import sys
 from random import seed, randint
 
 """ Read (or Read Pair) Generator
-
-    Generates a set of random reads given a genome
-
+    Generates a set of random reads given a genome.
 """
 
 
@@ -50,7 +48,6 @@ def output_reads(reads):
 
 def main():
     genome = read_input()
-    # reads = generate_reads(genome, paired=True, d=500)
     reads = generate_reads(genome, paired=True,
                            read_len=100, num_reads=34000, d=400, delta=3)
     output_reads(reads)
