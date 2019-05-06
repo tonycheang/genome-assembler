@@ -6,6 +6,8 @@ from itertools import tee, combinations
 
 """ Implementing an Assembler
 
+    -- Goal --
+
     The assembler must handle both regular reads and read-pairs. For the latter problem,
     a paired de Bruijn graph can be defined. Instead of outputting an Eulerian path--unique
     construction can be rare--this assembler outputs contigs (non-branching segments).
@@ -17,17 +19,21 @@ from itertools import tee, combinations
     E. Coli O104          (read-pairs)   - t = 700000,  len = 100,    coverage: 25
 
     -- Approach --
-    Filter kmers with low coverage (hamming distance approach)
-    We can ignore bubbles and tips after this.
 
-    TO DO:
-    Modify DeBruijnGraph to return contigs instead of whole genome.
-        Traverse backward until find node with branching, then take previous (non branching start)
-        Where to start to ensure long contigs?
-    Figure out a filter threshold (likely still 5, maybe 4 for E. Coli, less for read pairs or not?).
-        How to account for multiplicity? Can we ignore or not?
-        Query statistics?
-    Figure how to merge unnecessary edges. (do edges need a new representation? or nodes...?)
+    (1) Filter kmers with low coverage. (Hamming distance approach)
+            Can use Count-min sketch to store counts using log(n) space if space becomes a concern.
+            DETAILS OF FILTERING FOR ERRONEOUS READ-PAIRS?
+            We can ignore bubbles and tips after this.
+    (2) Build two nodes for each edge to create an unconnected graph.
+    (3) Merge nodes (a|b) and (a|b') when b and b' overlap by more than length-DELTA, 
+            where DELTA is the acceptable misalign distance. This creates a connected simple graph.
+    (3) ENUMERATE CONTIGS AND THE JOINING SPOTS - HOW (start, ending, node)?
+            When odd branching encountered or unbalanced node...
+    (4) Build a graph where each edge is a contig that connects at the correct location to other contigs.
+            DETAILS?
+    (5) Run a max circulation flow through the network to infer multiplicity. 
+            O(V[E**2]) doable for ~300 contigs even if this algorithm might be off by a factor of two or three.
+            O(VE) algorithm exists if runtime becomes a concern.
 """
 
 
@@ -37,20 +43,25 @@ class DeBruijnGraph:
     # Constants that control how the graph is built.
     KMER_LEN = 20
     HAMMING_DIST = 5
+    # This is 2*DELTA where DELTA is the maximum disance from the true mean D, the distance between paried kmers.
+    ALLOWED_PAIRED_DIST_ERROR = 6
 
-    def __init__(self, reads, paired=False):
+    def __init__(self, reads, paired=False, d=0):
         self.num_edges = 0
         self.nodes = dict()         # Indexed by data/prefix/suffix.
         self.is_paired_graph = paired
+        if self.is_paired_graph:
+            self.paired_dist = d
+            # We recieve half the number of reads with read-pairs
+            DeBruijnGraph.HAMMING_DIST = DeBruijnGraph.HAMMING_DIST//2
         self._build_graph(reads)
 
     def enumerate_contigs(self):
-        visited = dict()
         contigs = list()
+        # Does a for-loop suffice? What if multi-edges allowed?
         for node_id in self.nodes:
-            # We can visit a node multiple times if it branches... FIX THIS
-            if node_id not in visited:
-                found, contig = self._get_longest_contig(node_id, visited)
+            if self.nodes[node_id].out_degree > 0:
+                found, contig = self._get_longest_contig(node_id)
                 if found:
                     contigs.append(contig)
         return contigs
@@ -71,7 +82,7 @@ class DeBruijnGraph:
             chain.append(cur_node)
             cur_node_id = cur_node.pop_edge()
             cur_node = self.nodes[cur_node_id]
-        # Otherwise there are no outward edges. Let another node reach this one. What if last node?
+        # Otherwise there are no outward edges. Let another node reach this one.
         else:
             return (False, None)
 
@@ -81,7 +92,8 @@ class DeBruijnGraph:
             cur_node_id = cur_node.pop_edge()
             cur_node = self.nodes[cur_node_id]
 
-        return (True, [node.id[-1] for node in chain])  # DOUBLE CHECK THIS. Feel like it's different.
+        # DOUBLE CHECK THIS. Feel like it's different.
+        return (True, [node.id[-1] for node in chain])
 
     def build_eulerian_path(self):
         ''' Builds tours to save in class, then reconstructs based off build order. '''
@@ -190,10 +202,14 @@ class DeBruijnGraph:
         ''' Builds the path constructor with coverage considerations
             i.e. Filter out edges with coverage under our set Hamming distance
         '''
+        if self.is_paired_graph:
+            edge_counts = DeBruijnGraph._count_paired_edges(reads)
+            self._connect_paired_graph(edge_counts)
+        else:
+            edge_counts = DeBruijnGraph._count_edges(reads)
+            self._connect_graph(edge_counts)
 
-        # HANDLE PAIRS TOO
-        edge_counts = DeBruijnGraph._count_edges(reads, self.is_paired_graph)
-
+    def _connect_graph(self, edge_counts):
         for edge, count in edge_counts.items():
             prefix, suffix = edge[0], edge[1]
             if count > DeBruijnGraph.HAMMING_DISTANCE:
@@ -203,25 +219,38 @@ class DeBruijnGraph:
                     self.nodes[suffix] = Node(suffix)
 
                 self.nodes[prefix].add_edge(suffix)
-                self.nodes[suffix].in_degree += 1
+                self.nodes[suffix].add_reverse_edge(prefix)
                 self.num_edges += 1
-    
+
     @staticmethod
-    def _count_edges(reads, paired):
+    def _count_edges(reads):
         def pairwise(iterable):
             "s -> (s0,s1), (s1,s2), (s2, s3), ... (FROM ITERTOOLS)"
             a, b = tee(iterable)
             next(b, None)
             return zip(a, b)
-        
-        # HANDLE PAIRS TOO
+
         edge_counts = defaultdict(int)
         for cur_read in reads:
             k_minus_one_mers = DeBruijnGraph._break_read_into_k_minus_one_mers(
-                DeBruijnGraph.KMER_LEN, cur_read, paired)
+                DeBruijnGraph.KMER_LEN, cur_read, paired=False)
 
             for prefix, suffix in pairwise(k_minus_one_mers):
                 edge_counts[(prefix, suffix)] += 1
+        return edge_counts
+
+    def _connect_paired_graph(self, edge_counts):
+        pass
+
+    @staticmethod
+    def _count_paired_edges(reads):
+        def pairwise(iterable):
+            "s -> (s0,s1), (s1,s2), (s2, s3), ... (FROM ITERTOOLS)"
+            a, b = tee(iterable)
+            next(b, None)
+            return zip(a, b)
+
+        return list()
 
     @staticmethod
     def _break_read_into_k_minus_one_mers(k, read, paired=False):
@@ -231,20 +260,20 @@ class DeBruijnGraph:
                 [('ACT', 'TCG', 3), ('CTG', 'CGA', 3), ('TGA', 'GAT', 3), ('GAC', 'ATC', 3)]
         '''
         if paired:
-            return [(read[0][i:i+k-1], read[1][i:i+k-1], read[2]) for i in range(len(read[0])-(k-2))]
+            return [(read[0][i:i+k-1], read[1][i:i+k-1]) for i in range(len(read[0])-(k-2))]
         else:
             return [read[i:i+k-1] for i in range(len(read)-(k-2))]
 
 
 class Node:
     def __init__(self, id_, paired_data=None, d_to_pair=None):
-        # PAIRED DATA MIGHT NEED UNQIUE ID FOR HASH TABLE
+        # PAIRED DATA MIGHT NEED UNQIUE ID FOR HASH TABLE? DEPENDS ON MERGING...
         # ID contains the prefix/suffix string
         self.id = id_
         # Edges are the string, or the key into the constructor
         self.edges = list()
+        self.reverse_edges = list()
         self.tours = list()
-        self.in_degree = 0
         if paired_data is not None:
             self.paired_data = paired_data
             self.d_to_pair = d_to_pair
@@ -253,15 +282,28 @@ class Node:
     def out_degree(self):
         return len(self.edges)
 
+    @property
+    def in_degree(self):
+        return len(self.reverse_edges)
+
     def pop_edge(self):
         ''' Gets and removes an edge. '''
         edge = self.edges.pop()
         if not self.edges:
             self.notify_tours_no_available_edges()
         return edge
+    
+    def merge(self, other):
+        pass
 
     def has_available_edges(self):
         return bool(self.edges)
+
+    def add_edge(self, edge):
+        self.edges.append(edge)
+
+    def add_reverse_edge(self, edge):
+        self.reverse_edges.append(edge)
 
     def notify_tours_no_available_edges(self):
         ''' Used to tell tours not to keep the node in its avaible_edges dict '''
@@ -270,9 +312,6 @@ class Node:
 
     def subscribe_tour(self, tour):
         self.tours.append(tour)
-
-    def add_edge(self, edge):
-        self.edges.append(edge)
 
 
 class Tour:
@@ -310,27 +349,30 @@ class Tour:
 class IOHandler:
     @staticmethod
     def read_input():
-        ''' Returns a list of reads or read-pairs, not yet broken down. '''
+        ''' Returns a list of reads or read-pairs, not yet broken down,
+            and indications of which (paired?, d).        
+        '''
+        n = int(sys.stdin.readline().strip())
         paired = False
         reads = list()
-        n = int(sys.stdin.readline()[0])
+        d = 0
 
         # Check for read-pair vs non-paired input format
         first_line = sys.stdin.readline().strip().split('|')
         if len(first_line) > 1:
             read1, read2, d = first_line
-            reads.append((read1, read2, int(d)))
+            reads.append((read1, read2))
             paired = True
             for _ in range(n-1):
                 read1, read2, d = sys.stdin.readline().strip().split('|')
-                reads.append((read1, read2, int(d)))
+                reads.append((read1, read2))
         else:
             reads.append(first_line[0])
             for _ in range(n-1):
                 read = sys.stdin.readline().strip()
                 reads.append(read)
 
-        return (paired, reads)
+        return (reads, paired, int(d))
 
     @staticmethod
     def print_FASTA(contigs):
@@ -340,8 +382,8 @@ class IOHandler:
 
 
 def main():
-    paired, reads = IOHandler.read_input()
-    graph = DeBruijnGraph(reads, paired)
+    reads, paired, d = IOHandler.read_input()
+    # graph = DeBruijnGraph(reads, paired, d)
     # contigs = graph.enumerate_contigs()
     # IOHandler.print_FASTA(contigs)
 
