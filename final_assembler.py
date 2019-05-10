@@ -1,7 +1,7 @@
 #python3
 
 import sys
-from abc import ABC
+from abc import ABC, abstractmethod
 from collections import deque, defaultdict
 from itertools import tee, combinations
 
@@ -188,8 +188,11 @@ class PairedDeBruijnGraph(AbstractDeBruijnGraph):
     def __connect_graph(self, edge_counts):
         pass
 
+    def __merge_nodes(self, node, node_to_remove):
+        pass
+
     @staticmethod
-    def count_edges():
+    def count_edges(reads):
         pass
     
     @staticmethod
@@ -206,6 +209,7 @@ class Node:
         # Edges are the string, or the key into the constructor
         self.edges = list()
         self.reverse_edges = list()
+        self.branching = False
 
     @property
     def out_degree(self):
@@ -237,30 +241,10 @@ class PairedNode(Node):
         self.paired_data = paired_data
         self.pair_dist = pair_dist
         super().__init__(data)
-    
-    @property
-    def out_degree(self):
-        return super().outdegree
 
-    @property
-    def in_degree(self):
-        return super().in_degree
-
-    @property
-    def has_available_edges(self):
-        return super().has_available_edges
-
-    def pop_edge(self):
-        ''' Gets and removes an edge. '''
-        return super().pop_edge()
-
-    def append_edge(self, edge):
-        super().append_edge(edge)
-
-    def append_reverse_edge(self, edge):
-       super().append_reverse_edge(edge)
-    
-    def merge(self, other):
+    # Consider whether this goes here.
+    @staticmethod
+    def overlaps(text, pattern, threshold):
         pass
 
 class IOHandler:
