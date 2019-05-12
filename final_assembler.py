@@ -23,9 +23,8 @@ from itertools import tee, combinations
 
         - Building the Graph -
 
-    (1) Filter kmers with low coverage. (Hamming distance approach)
+    (1) Filter kmer or kmer-pairs with low coverage. (Hamming Distance approach)
             Can use Count-min sketch to store counts using log(n) space if space becomes a concern.
-            DETAILS OF FILTERING FOR ERRONEOUS READ-PAIRS?
             We can ignore bubbles and tips after this.
     (2) Build two nodes for each edge to create an unconnected graph.
     (3) Merge nodes (a|b) and (a|b') when b and b' overlap by more than length 2*DELTA, 
@@ -36,16 +35,22 @@ from itertools import tee, combinations
         - Building Contigs -
     
     (5) Traverse each edge forward and backward to obtain a non-branching segment. This is a contig.
-            On branching nodes, record where each contig joins another.
-            The branching nodes with contigs as edges will make up the circulation flow graph.
+            If starting at a branch (i.e. in/outdegree > 1), take any node forward and only go 
+                forward until next branch.
+            If starting at a middle section, take nodes forward and backward until a branching node.
+            If starting at a dead end, work backward until a branching node.
+
+            Traversal backward needs the correct forward edge removed. Maybe store in a dict?
     
         - Infering Multiplicity of Contigs -
-        (Skip for now. Infer only if necessary. Contigs of repeated regions will be unrepresented.)
-    
+        (SKIP for now. Infer only if necessary. Contigs of repeated regions will be unrepresented.)
+
+    (5.5) On branching nodes, record where each contig joins another.
+            The branching nodes with contigs as edges will make up the circulation flow graph.
     (6) Build a graph where each edge is a contig that connects at the correct location to other contigs.
             Long contigs (>1000 BP) will have max and min flow of 1. They are correct.
     (7) Run a max circulation flow through the network to infer multiplicity. 
-            O(V[E**2]) doable for ~300 contigs even if this algorithm might be off by a factor of two or three.
+            O(V[E**2]) doable for ~300 contigs, even 10**3 contigs.
             O(VE) algorithm exists if runtime becomes a concern.
 """
 
@@ -55,8 +60,8 @@ class Node:
         # data contains the prefix_paired/suffix_paired string
         self.data = data
         # Edges are the string, or the key into the constructor
-        self.edges = list()
-        self.reverse_edges = list()
+        self.edges = dict()
+        self.reverse_edges = dict()
         self.branching = False
 
     @property
@@ -73,10 +78,7 @@ class Node:
 
     def pop_edge(self):
         ''' Gets and removes an edge. '''
-        edge = self.edges.pop()
-        if not self.edges:
-            self.notify_tours_no_available_edges()
-        return edge
+        return self.edges.popitem()
 
     def append_edge(self, edge):
         self.edges.append(edge)
@@ -91,11 +93,6 @@ class PairedNode(Node):
         self.pair_dist = pair_dist
         super().__init__(data)
 
-    # Consider whether this goes here.
-    @staticmethod
-    def overlaps(text, pattern, threshold):
-        pass
-
 
 class AbstractDeBruijnGraph(ABC):
     @abstractmethod
@@ -103,26 +100,26 @@ class AbstractDeBruijnGraph(ABC):
         pass
 
     @abstractmethod
-    def __get_longest_contig(self, start_node_data, visited):
+    def _get_longest_contig(self, start_node_data, visited):
         pass
 
     @abstractmethod
-    def __build_graph(self, reads):
-        pass
-
-    @staticmethod
-    @abstractmethod
-    def __count_kmers(reads):
+    def _build_graph(self, reads):
         pass
 
     @staticmethod
     @abstractmethod
-    def __break_read_into_k_minus_one_mers(k, read):
+    def _count_kmers(reads):
+        pass
+
+    @staticmethod
+    @abstractmethod
+    def _break_read_into_k_minus_one_mers(k, read):
         ''' Breaks into list of prefix_pairedes and suffix_pairedes. '''
         pass
 
     @staticmethod
-    def pairwise(iterable):
+    def _pairwise(iterable):
         "s -> (s0,s1), (s1,s2), (s2, s3), ... (FROM ITERTOOLS)"
         a, b = tee(iterable)
         next(b, None)
@@ -140,7 +137,7 @@ class DeBruijnGraph(AbstractDeBruijnGraph):
         self.num_edges = 0
         # Indexed by data/prefix_paired/suffix_paired.
         self.nodes = dict()
-        self.__build_graph(reads)
+        self._build_graph(reads)
 
     def enumerate_contigs(self):
         contigs = list()
@@ -152,7 +149,7 @@ class DeBruijnGraph(AbstractDeBruijnGraph):
                     contigs.append(contig)
         return contigs
 
-    def __get_longest_contig(self, start_node_data, visited):
+    def _get_longest_contig(self, start_node_data, visited):
         ''' Finds the longest contig by moving both forward and backward until
             nodes with branches are found.
         '''
@@ -181,11 +178,11 @@ class DeBruijnGraph(AbstractDeBruijnGraph):
         # DOUBLE CHECK THIS. Feel like it's different.
         return (True, [node.data[-1] for node in chain])
 
-    def __build_graph(self, reads):
-        ''' Builds the path constructor with coverage consdataerations
+    def _build_graph(self, reads):
+        ''' Builds the path constructor with coverage considerations
             i.e. Filter out edges with coverage under our set Hamming distance
         '''
-        kmer_counts = DeBruijnGraph.__count_kmers(reads)
+        kmer_counts = DeBruijnGraph._count_kmers(reads)
         for edge, count in kmer_counts.items():
             prefix, suffix = edge[0], edge[1]
             if count > DeBruijnGraph.HAMMING_DISTANCE:
@@ -199,19 +196,18 @@ class DeBruijnGraph(AbstractDeBruijnGraph):
                 self.num_edges += 1
 
     @staticmethod
-    def __count_kmers(reads):
-
+    def _count_kmers(reads):
         kmer_counts = defaultdict(int)
         for cur_read in reads:
             k_minus_one_mers = DeBruijnGraph._break_read_into_k_minus_one_mers(
                 DeBruijnGraph.KMER_LEN, cur_read)
 
-            for prefix, suffix in AbstractDeBruijnGraph.pairwise(k_minus_one_mers):
+            for prefix, suffix in AbstractDeBruijnGraph._pairwise(k_minus_one_mers):
                 kmer_counts[(prefix, suffix)] += 1
         return kmer_counts
 
     @staticmethod
-    def __break_read_into_k_minus_one_mers(k, read, paired=False):
+    def _break_read_into_k_minus_one_mers(k, read, paired=False):
         ''' Non-paired output format for 'ACTGAC', k=4: ['ACT', 'CTG', 'TGA', 'GAC'] '''
         return [read[i:i+k-1] for i in range(len(read)-(k-2))]
 
@@ -226,43 +222,89 @@ class PairedDeBruijnGraph(AbstractDeBruijnGraph):
     def __init__(self, reads, d):
         self.num_edges = 0
         # Indexed by (data, paired_data)/(prefix, paired_prefix)/(suffix, paired_suffix)
-        self.nodes = dict()
+        self.nodes = defaultdict(dict)
         self.dist = d
         self._build_graph(reads)
 
     def enumerate_contigs(self):
         pass
 
-    def __get_longest_contig(self):
+    def _get_longest_contig(self):
         pass
 
-    def __build_graph(self, reads):
-        kmer_counts, broken_read_pairs = PairedDeBruijnGraph.__count_kmers(
+    def _build_graph(self, reads):
+        kmer_counts, broken_read_pairs = PairedDeBruijnGraph._count_kmers(
             reads)
 
         for read_pairs in broken_read_pairs:
-            for prefix_paired, suffix_paired in AbstractDeBruijnGraph.pairwise(read_pairs):
+            for prefix_paired, suffix_paired in AbstractDeBruijnGraph._pairwise(read_pairs):
                 # Indiscriminately filters any edge that has an erroneous k-mer
-                if kmer_counts[(prefix_paired[0], suffix_paired[0])] > PairedDeBruijnGraph.HAMMING_DIST and \
-                        kmer_counts[(prefix_paired[1], suffix_paired[1])] > PairedDeBruijnGraph.HAMMING_DIST:
+                if kmer_counts[(prefix_paired[0], suffix_paired[0])] > PairedDeBruijnGraph.HAMMING_DIST and kmer_counts[(prefix_paired[1], suffix_paired[1])] > PairedDeBruijnGraph.HAMMING_DIST:
 
-                    if prefix_paired not in self.nodes:
-                        self.nodes[prefix_paired] = Node(
-                            prefix_paired[0], prefix_paired[1])
-                    if suffix_paired not in self.nodes:
-                        self.nodes[suffix_paired] = Node(
-                            suffix_paired[0], suffix_paired[1])
-
-                    self.nodes[prefix_paired].append_edge(suffix_paired)
-                    self.nodes[suffix_paired].append_reverse_edge(
+                    # Check whether the each node already exists, accounting for inexact distance between paired reads. self._find_matching_node() will set the node variables to existing  nodes if they exist.
+                    prefix_found, prefix_node = self._find_matching_node(
                         prefix_paired)
-                    self.num_edges += 1
+                    suffix_found, suffix_node = self._find_matching_node(
+                        suffix_paired)
 
-    def __merge_nodes(self, node, node_to_remove):
-        pass
+                    # Create and add any nodes that don't already exist. 
+                    # The check for not found ensures we do not overwrite existing matching nodes with new nodes.
+                    if not prefix_found:
+                        prefix_node = PairedNode(prefix_paired[0], prefix_paired[1])
+                        self.nodes[prefix_paired[0]][prefix_paired[1]] = prefix_node
+                    if not suffix_found:
+                        suffix_node = PairedNode(suffix_paired[0], suffix_paired[1])
+                        self.nodes[suffix_paired[0]][suffix_paired[1]] = suffix_node
+
+                    # Case: Either not node found, therefore edge cannot already exist.
+                    if not (prefix_found and suffix_found):
+                        prefix_node.append_edge((suffix_node.data, suffix_node.paired_data))
+                        prefix_node.append_reverse_edge((suffix_node.data, suffix_node.paired_data))
+                        self.num_edges += 1
+                    # Case: Both nodes found but edge between them doesn't exist.
+                    elif (suffix_node.data, suffix_node.paired_data) not in prefix_node.edges:
+                        prefix_node.append_edge((suffix_node.data, suffix_node.paired_data))
+                        prefix_node.append_reverse_edge((suffix_node.data, suffix_node.paired_data))
+                        self.num_edges += 1
+                    # Case: Both nodes found, and an edge between them exists. Don't add a new edge.
+                    # Ensures simple graph created. Self-edges not accounted for.
+                    else:
+                        continue
+
+    def _find_matching_node(self, paired_strings):
+        ''' Checks whether self.nodes has a node (A|B) node with matching A
+            and a matching B. Matching A must be exact, while matching B can
+            misalign by 2*DELTA or ALLOWED_PAIRED_DIST_ERROR
+        '''
+        if paired_strings[0] in self.nodes:
+            for paired_key, potential_match_node in self.nodes[paired_strings[0]].items():
+                # Check both alignments, since paired-reads are drawn from uniform distribution AROUND d.
+                if PairedDeBruijnGraph._find_longest_overlap_brute(paired_key, paired_strings[1]) != 0 or PairedDeBruijnGraph._find_longest_overlap_brute(paired_strings[1], paired_key) != 0:
+                    return (True, potential_match_node)
+        return (False, None)
 
     @staticmethod
-    def __count_kmers(reads):
+    def _find_longest_overlap_brute(pattern, text):
+        MAX_MISMATCH = 0
+        # Start at one since matching the exact pattern with text would mean
+        # they are the same read with different errors e.g. ATCGTC ATGCTC
+        # this ensures we only return smaller than len(text) matches
+        for start_text_pos in range(1, len(text) - PairedDeBruijnGraph.ALLOWED_PAIRED_DIST_ERROR):
+            mismatches = 0
+            len_possible_overlap = min(
+                len(text) - start_text_pos, len(pattern))
+            for pattern_pos in range(len_possible_overlap):
+                text_pos = start_text_pos + pattern_pos
+                if text[text_pos] != pattern[pattern_pos]:
+                    mismatches += 1
+                    if mismatches > MAX_MISMATCH:
+                        break
+            else:
+                return len_possible_overlap
+        return 0
+
+    @staticmethod
+    def _count_kmers(reads):
         ''' Generates a structure to check whether a kmer appears frequently enough.
             Currently uses a dict but can switch over a count-min sketch if space is a concern.
         '''
@@ -270,12 +312,12 @@ class PairedDeBruijnGraph(AbstractDeBruijnGraph):
         kmer_counts = defaultdict(int)
         broken_read_pairs = list()
         for cur_read_pair in reads:
-            paired_k_minus_one_mers = PairedDeBruijnGraph.__break_read_into_k_minus_one_mers(
+            paired_k_minus_one_mers = PairedDeBruijnGraph._break_read_into_k_minus_one_mers(
                 PairedDeBruijnGraph.KMER_LEN, cur_read_pair)
 
             broken_read_pairs.append(paired_k_minus_one_mers)
 
-            for prefix_paired_paired, suffix_paired_paired in AbstractDeBruijnGraph.pairwise(paired_k_minus_one_mers):
+            for prefix_paired_paired, suffix_paired_paired in AbstractDeBruijnGraph._pairwise(paired_k_minus_one_mers):
                 # Each kmer_pair generates two kmers, each of which we'll count for coverage.
                 kmer_counts[(prefix_paired_paired[0],
                              suffix_paired_paired[0])] += 1
@@ -284,7 +326,7 @@ class PairedDeBruijnGraph(AbstractDeBruijnGraph):
         return (kmer_counts, broken_read_pairs)
 
     @staticmethod
-    def __break_read_into_k_minus_one_mers(k, read):
+    def _break_read_into_k_minus_one_mers(k, read):
         ''' Paired output format for ('ACTGAC', 'TCGATC'), k=4: 
             [('ACT', 'TCG'), ('CTG', 'CGA'), ('TGA', 'GAT'), ('GAC', 'ATC')]
         '''
