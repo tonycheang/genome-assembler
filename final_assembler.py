@@ -1,4 +1,4 @@
-#python3
+# python3
 
 import sys
 from abc import ABC, abstractmethod
@@ -11,7 +11,7 @@ from itertools import tee, combinations
 
     The assembler must handle both regular reads and read-pairs. For the latter problem,
     a paired de Bruijn graph can be defined. Instead of outputting an Eulerian path--unique
-    construction can be rare--this assembler outputs contigs (non-branching segments).
+    construction can be rare--this assembler outputs contigs (non-was_branching segments).
 
     Data Sets Tested Against:
     N. deltocephalinicola                - t = 34000,   len = 100,    coverage: 30
@@ -29,24 +29,24 @@ from itertools import tee, combinations
     (2) Build two nodes for each edge to create an unconnected graph.
     (3) Merge nodes (a|b) and (a|b') when b and b' overlap by more than length 2*DELTA, 
             where DELTA is the misalign distance. This creates a connected simple graph.
-    (4) Each node at this point must record whether they are a branching node or not.
+    (4) Each node at this point must record whether they are a was_branching node or not.
             Otherwise, once the last edges remain from popping, it will be counted as part of another contig.
     
         - Building Contigs -
     
-    (5) Traverse each edge forward and backward to obtain a non-branching segment. This is a contig.
+    (5) Traverse each edge forward and backward to obtain a non-was_branching segment. This is a contig.
             If starting at a branch (i.e. in/outdegree > 1), take any node forward and only go 
                 forward until next branch.
-            If starting at a middle section, take nodes forward and backward until a branching node.
-            If starting at a dead end, work backward until a branching node.
+            If starting at a middle section, take nodes forward and backward until a was_branching node.
+            If starting at a dead end, work backward until a was_branching node.
 
             Traversal backward needs the correct forward edge removed. Maybe store in a dict?
     
         - Infering Multiplicity of Contigs -
         (SKIP for now. Infer only if necessary. Contigs of repeated regions will be unrepresented.)
 
-    (5.5) On branching nodes, record where each contig joins another.
-            The branching nodes with contigs as edges will make up the circulation flow graph.
+    (5.5) On was_branching nodes, record where each contig joins another.
+            The was_branching nodes with contigs as edges will make up the circulation flow graph.
     (6) Build a graph where each edge is a contig that connects at the correct location to other contigs.
             Long contigs (>1000 BP) will have max and min flow of 1. They are correct.
     (7) Run a max circulation flow through the network to infer multiplicity. 
@@ -62,23 +62,31 @@ class Node:
         # Edges are the string, or the key into the constructor
         self.edges = dict()
         self.reverse_edges = dict()
-        self.branching = False
+        self.was_branching = False
 
     @property
-    def out_degree(self):
+    def outdegree(self):
         return len(self.edges)
 
     @property
-    def in_degree(self):
+    def indegree(self):
         return len(self.reverse_edges)
 
     @property
     def has_available_edges(self):
         return bool(self.edges)
 
+    @property
+    def has_available_reverse_edges(self):
+        return bool(self.reverse_edges)
+
     def pop_edge(self):
-        ''' Gets and removes an edge. '''
+        ''' Gets and removes a forward edge. '''
         return self.edges.popitem()
+
+    def pop_reverse_edge(self):
+        ''' Gets and removes an edge. '''
+        return self.reverse_edges.popitem()
 
     def append_edge(self, edge):
         self.edges.append(edge)
@@ -130,7 +138,8 @@ class DeBruijnGraph(AbstractDeBruijnGraph):
 
     KMER_LEN = 20
     HAMMING_DIST = 5
-    # This is 2*DELTA where DELTA is the maximum disance from the true mean D, the distance between paried kmers.
+    # This is 2*DELTA where DELTA is the maximum disance from the true mean D,
+    # the distance between paried kmers.
     ALLOWED_PAIRED_DIST_ERROR = 6
 
     def __init__(self, reads):
@@ -143,7 +152,7 @@ class DeBruijnGraph(AbstractDeBruijnGraph):
         contigs = list()
         # Does a for-loop suffice? What if multi-edges allowed?
         for node_data in self.nodes:
-            if self.nodes[node_data].out_degree > 0:
+            if self.nodes[node_data].outdegree > 0:
                 found, contig = self._get_longest_contig(node_data)
                 if found:
                     contigs.append(contig)
@@ -157,11 +166,11 @@ class DeBruijnGraph(AbstractDeBruijnGraph):
         cur_node = self.nodes[start_node_data]
 
         # Only traverse backward if the starting node is non-branching.
-        if cur_node.out_degree == 1:
+        if cur_node.outdegree == 1:
             # HOW TO TRAVERSE BACKWARD???
             pass
         # If the node is branching, pick some edge.
-        elif cur_node.out_degree > 1:
+        elif cur_node.outdegree > 1:
             chain.append(cur_node)
             cur_node_data = cur_node.pop_edge()
             cur_node = self.nodes[cur_node_data]
@@ -170,7 +179,7 @@ class DeBruijnGraph(AbstractDeBruijnGraph):
             return (False, None)
 
         # Traverse forward.
-        while cur_node.out_degree == 1:
+        while cur_node.outdegree == 1:
             chain.append(cur_node)
             cur_node_data = cur_node.pop_edge()
             cur_node = self.nodes[cur_node_data]
@@ -227,10 +236,66 @@ class PairedDeBruijnGraph(AbstractDeBruijnGraph):
         self._build_graph(reads)
 
     def enumerate_contigs(self):
-        pass
+        contigs = list()
+        for _, nodes in self.nodes.items():
+            for _, node in nodes:
+                if node.has_available_edges:
+                    contig = self._get_longest_contig(node)
+                    contigs.append(contig)
+        return contigs
 
-    def _get_longest_contig(self):
-        pass
+    def _get_longest_contig(self, start_node):
+
+        def traverse_and_build_contig(start_node, contig_pieces, reverse=False):
+            ''' Builds up the contig in the specified direction until either a branching node is encountered
+                or there are no more edges to traverse.
+            '''
+            cur_node = start_node
+            if reverse:
+                while cur_node.has_available_reverse_edges and not cur_node.was_branching:
+                    key, paired_key = cur_node.pop_reverse_edge()
+                    # Traversal backward adds the first character of next k-1mer
+                    contig_pieces.appendleft(key[0])
+                    next_node = self.nodes[key][paired_key]
+                    # Ensures removal of corresponding forward edge.
+                    assert (cur_node.data, cur_node.paired_data) in next_node.edges, \
+                        "Trying to remove non-existent forward edge!"
+                    del next_node.edges[(cur_node.data, cur_node.paired_data)]
+                    cur_node = next_node
+                contig_pieces.appendleft(cur_node.data[0])
+            else:
+                while cur_node.has_available_edges and not cur_node.was_branching:
+                    key, paired_key = cur_node.pop_edge()
+                    # Traversal forward adds the last character of next k-1mer
+                    contig_pieces.append(key[-1])
+                    next_node = self.nodes[key][paired_key]
+                    # Ensures removal of corresponding backward edge.
+                    assert (cur_node.data, cur_node.paired_data) in next_node.reverse_edges, \
+                        "Trying to remove non-existent reverse edge!"
+                    del next_node.reverse_edges[(
+                        cur_node.data, cur_node.paired_data)]
+                    cur_node = next_node
+
+                contig_pieces.append(cur_node.data[-1])
+
+        contig_pieces = deque()
+        contig_pieces.append(start_node.data)
+
+        # Branching nodes pick a single direction to move.
+        if start_node.was_branching:
+            # The decision of which, if both available, is arbitrary.
+            if start_node.outdegree > 0:
+                traverse_and_build_contig(start_node, contig_pieces, reverse=False)
+            elif start_node.indegree > 0:
+                traverse_and_build_contig(start_node, contig_pieces, reverse=True)
+            else:
+                assert False, "Trying to make contig from a node without edges!"
+        # Non-branching nodes move in both directions.
+        else:
+            traverse_and_build_contig(start_node, contig_pieces, reverse=False)
+            traverse_and_build_contig(start_node, contig_pieces, reverse=True)
+
+        return "".join(contig_pieces)
 
     def _build_graph(self, reads):
         kmer_counts, broken_read_pairs = PairedDeBruijnGraph._count_kmers(
@@ -239,15 +304,15 @@ class PairedDeBruijnGraph(AbstractDeBruijnGraph):
         for read_pairs in broken_read_pairs:
             for prefix_paired, suffix_paired in AbstractDeBruijnGraph._pairwise(read_pairs):
                 # Indiscriminately filters any edge that has an erroneous k-mer
-                if kmer_counts[(prefix_paired[0], suffix_paired[0])] > PairedDeBruijnGraph.HAMMING_DIST and kmer_counts[(prefix_paired[1], suffix_paired[1])] > PairedDeBruijnGraph.HAMMING_DIST:
+                if kmer_counts[(prefix_paired[0], suffix_paired[0])] > PairedDeBruijnGraph.HAMMING_DIST and \
+                        kmer_counts[(prefix_paired[1], suffix_paired[1])] > PairedDeBruijnGraph.HAMMING_DIST:
 
-                    # Check whether the each node already exists, accounting for inexact distance between paired reads. self._find_matching_node() will set the node variables to existing  nodes if they exist.
-                    prefix_found, prefix_node = self._find_matching_node(
-                        prefix_paired)
-                    suffix_found, suffix_node = self._find_matching_node(
-                        suffix_paired)
+                    # Check whether the each node already exists, accounting for inexact distance between paired reads.
+                    # self._find_matching_node() will set the node variables to existing  nodes if they exist.
+                    prefix_found, prefix_node = self._find_matching_node(prefix_paired)
+                    suffix_found, suffix_node = self._find_matching_node(suffix_paired)
 
-                    # Create and add any nodes that don't already exist. 
+                    # Create and add any nodes that don't already exist.
                     # The check for not found ensures we do not overwrite existing matching nodes with new nodes.
                     if not prefix_found:
                         prefix_node = PairedNode(prefix_paired[0], prefix_paired[1])
@@ -259,17 +324,23 @@ class PairedDeBruijnGraph(AbstractDeBruijnGraph):
                     # Case: Either not node found, therefore edge cannot already exist.
                     if not (prefix_found and suffix_found):
                         prefix_node.append_edge((suffix_node.data, suffix_node.paired_data))
-                        prefix_node.append_reverse_edge((suffix_node.data, suffix_node.paired_data))
+                        suffix_node.append_reverse_edge((prefix_node.data, prefix_node.paired_data))
                         self.num_edges += 1
                     # Case: Both nodes found but edge between them doesn't exist.
                     elif (suffix_node.data, suffix_node.paired_data) not in prefix_node.edges:
                         prefix_node.append_edge((suffix_node.data, suffix_node.paired_data))
-                        prefix_node.append_reverse_edge((suffix_node.data, suffix_node.paired_data))
+                        suffix_node.append_reverse_edge((prefix_node.data, prefix_node.paired_data))
                         self.num_edges += 1
                     # Case: Both nodes found, and an edge between them exists. Don't add a new edge.
                     # Ensures simple graph created. Self-edges not accounted for.
                     else:
                         continue
+
+        # Mark was_branching nodes before graph gets consumed.
+        for _, nodes in self.nodes.items():
+            for _, node in nodes.items():
+                if node.outdegree > 1 or node.indegree > 1:
+                    node.was_branching = True
 
     def _find_matching_node(self, paired_strings):
         ''' Checks whether self.nodes has a node (A|B) node with matching A
@@ -279,7 +350,8 @@ class PairedDeBruijnGraph(AbstractDeBruijnGraph):
         if paired_strings[0] in self.nodes:
             for paired_key, potential_match_node in self.nodes[paired_strings[0]].items():
                 # Check both alignments, since paired-reads are drawn from uniform distribution AROUND d.
-                if PairedDeBruijnGraph._find_longest_overlap_brute(paired_key, paired_strings[1]) != 0 or PairedDeBruijnGraph._find_longest_overlap_brute(paired_strings[1], paired_key) != 0:
+                if PairedDeBruijnGraph._find_longest_overlap_brute(paired_key, paired_strings[1]) != 0 or \
+                        PairedDeBruijnGraph._find_longest_overlap_brute(paired_strings[1], paired_key) != 0:
                     return (True, potential_match_node)
         return (False, None)
 
@@ -319,10 +391,8 @@ class PairedDeBruijnGraph(AbstractDeBruijnGraph):
 
             for prefix_paired_paired, suffix_paired_paired in AbstractDeBruijnGraph._pairwise(paired_k_minus_one_mers):
                 # Each kmer_pair generates two kmers, each of which we'll count for coverage.
-                kmer_counts[(prefix_paired_paired[0],
-                             suffix_paired_paired[0])] += 1
-                kmer_counts[(prefix_paired_paired[1],
-                             suffix_paired_paired[1])] += 1
+                kmer_counts[(prefix_paired_paired[0], suffix_paired_paired[0])] += 1
+                kmer_counts[(prefix_paired_paired[1], suffix_paired_paired[1])] += 1
         return (kmer_counts, broken_read_pairs)
 
     @staticmethod
