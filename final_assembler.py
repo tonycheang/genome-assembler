@@ -89,16 +89,20 @@ class Node:
         return self.reverse_edges.popitem()
 
     def append_edge(self, edge):
-        self.edges.append(edge)
+        self.edges[edge] = True
 
     def append_reverse_edge(self, edge):
-        self.reverse_edges.append(edge)
+        self.reverse_edges[edge] = True
+    
+    def __repr__(self):
+        ''' For debugging small examples. '''
+        return "Data: {0} | Pair: {1} | Edges: {2} | Reverse Edges: {3}" \
+            .format(self.data, self.paired_data, self.edges, self.reverse_edges)
 
 
 class PairedNode(Node):
-    def __init__(self, paired_data, pair_dist, data):
+    def __init__(self, data, paired_data):
         self.paired_data = paired_data
-        self.pair_dist = pair_dist
         super().__init__(data)
 
 
@@ -223,10 +227,10 @@ class DeBruijnGraph(AbstractDeBruijnGraph):
 
 class PairedDeBruijnGraph(AbstractDeBruijnGraph):
 
-    KMER_LEN = 3  # 20
-    HAMMING_DIST = 3
+    KMER_LEN = 10  # 20
+    HAMMING_DIST = 56
     # This is 2*DELTA where DELTA is the maximum disance from the true mean D, the distance between paried kmers.
-    ALLOWED_PAIRED_DIST_ERROR = 6
+    ALLOWED_PAIRED_DIST_ERROR = 4
 
     def __init__(self, reads, d):
         self.num_edges = 0
@@ -238,10 +242,12 @@ class PairedDeBruijnGraph(AbstractDeBruijnGraph):
     def enumerate_contigs(self):
         contigs = list()
         for _, nodes in self.nodes.items():
-            for _, node in nodes:
+            for _, node in nodes.items():
                 if node.has_available_edges:
                     contig = self._get_longest_contig(node)
                     contigs.append(contig)
+                if self.num_edges == 0: 
+                    return contigs
         return contigs
 
     def _get_longest_contig(self, start_node):
@@ -253,7 +259,9 @@ class PairedDeBruijnGraph(AbstractDeBruijnGraph):
             cur_node = start_node
             if reverse:
                 while cur_node.has_available_reverse_edges and not cur_node.was_branching:
-                    key, paired_key = cur_node.pop_reverse_edge()
+                    edge, _ = cur_node.pop_reverse_edge()
+                    self.num_edges -= 1
+                    key, paired_key = edge
                     # Traversal backward adds the first character of next k-1mer
                     contig_pieces.appendleft(key[0])
                     next_node = self.nodes[key][paired_key]
@@ -262,36 +270,37 @@ class PairedDeBruijnGraph(AbstractDeBruijnGraph):
                         "Trying to remove non-existent forward edge!"
                     del next_node.edges[(cur_node.data, cur_node.paired_data)]
                     cur_node = next_node
-                contig_pieces.appendleft(cur_node.data[0])
             else:
                 while cur_node.has_available_edges and not cur_node.was_branching:
-                    key, paired_key = cur_node.pop_edge()
+                    edge, _ = cur_node.pop_edge()
+                    self.num_edges -= 1
+                    key, paired_key = edge
                     # Traversal forward adds the last character of next k-1mer
                     contig_pieces.append(key[-1])
                     next_node = self.nodes[key][paired_key]
                     # Ensures removal of corresponding backward edge.
                     assert (cur_node.data, cur_node.paired_data) in next_node.reverse_edges, \
                         "Trying to remove non-existent reverse edge!"
-                    del next_node.reverse_edges[(
-                        cur_node.data, cur_node.paired_data)]
+                    del next_node.reverse_edges[(cur_node.data, cur_node.paired_data)]
                     cur_node = next_node
 
-                contig_pieces.append(cur_node.data[-1])
-
         contig_pieces = deque()
-        contig_pieces.append(start_node.data)
+        #contig_pieces.append(start_node.data)
 
         # Branching nodes pick a single direction to move.
         if start_node.was_branching:
             # The decision of which, if both available, is arbitrary.
             if start_node.outdegree > 0:
+                contig_pieces.append(start_node.data[-1])
                 traverse_and_build_contig(start_node, contig_pieces, reverse=False)
             elif start_node.indegree > 0:
+                contig_pieces.append(start_node.data[0])
                 traverse_and_build_contig(start_node, contig_pieces, reverse=True)
             else:
                 assert False, "Trying to make contig from a node without edges!"
         # Non-branching nodes move in both directions.
         else:
+            contig_pieces.append(start_node.data[0])
             traverse_and_build_contig(start_node, contig_pieces, reverse=False)
             traverse_and_build_contig(start_node, contig_pieces, reverse=True)
 
@@ -315,10 +324,10 @@ class PairedDeBruijnGraph(AbstractDeBruijnGraph):
                     # Create and add any nodes that don't already exist.
                     # The check for not found ensures we do not overwrite existing matching nodes with new nodes.
                     if not prefix_found:
-                        prefix_node = PairedNode(prefix_paired[0], prefix_paired[1])
+                        prefix_node = PairedNode(data=prefix_paired[0], paired_data=prefix_paired[1])
                         self.nodes[prefix_paired[0]][prefix_paired[1]] = prefix_node
                     if not suffix_found:
-                        suffix_node = PairedNode(suffix_paired[0], suffix_paired[1])
+                        suffix_node = PairedNode(data=suffix_paired[0], paired_data=suffix_paired[1])
                         self.nodes[suffix_paired[0]][suffix_paired[1]] = suffix_node
 
                     # Case: Either not node found, therefore edge cannot already exist.
@@ -358,10 +367,7 @@ class PairedDeBruijnGraph(AbstractDeBruijnGraph):
     @staticmethod
     def _find_longest_overlap_brute(pattern, text):
         MAX_MISMATCH = 0
-        # Start at one since matching the exact pattern with text would mean
-        # they are the same read with different errors e.g. ATCGTC ATGCTC
-        # this ensures we only return smaller than len(text) matches
-        for start_text_pos in range(1, len(text) - PairedDeBruijnGraph.ALLOWED_PAIRED_DIST_ERROR):
+        for start_text_pos in range(len(text) - PairedDeBruijnGraph.ALLOWED_PAIRED_DIST_ERROR):
             mismatches = 0
             len_possible_overlap = min(
                 len(text) - start_text_pos, len(pattern))
@@ -434,7 +440,7 @@ class IOHandler:
     @staticmethod
     def print_FASTA(contigs):
         for i, contig in enumerate(contigs):
-            print(">CONTIG" + str(i))
+            print(">CONTIG" + str(i+1))
             print(contig)
 
 
@@ -445,8 +451,8 @@ def main():
         graph = PairedDeBruijnGraph(reads, d)
     else:
         graph = DeBruijnGraph(reads)
-    # contigs = graph.enumerate_contigs()
-    # IOHandler.print_FASTA(contigs)
+    contigs = graph.enumerate_contigs()
+    IOHandler.print_FASTA(contigs)
 
 
 if __name__ == "__main__":
