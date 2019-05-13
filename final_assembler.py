@@ -4,6 +4,7 @@ import sys
 from abc import ABC, abstractmethod
 from collections import deque, defaultdict
 from itertools import tee, combinations
+import time
 
 """ Implementing an Assembler
 
@@ -154,7 +155,6 @@ class DeBruijnGraph(AbstractDeBruijnGraph):
 
     def enumerate_contigs(self):
         contigs = list()
-        # Does a for-loop suffice? What if multi-edges allowed?
         for node_data in self.nodes:
             if self.nodes[node_data].outdegree > 0:
                 found, contig = self._get_longest_contig(node_data)
@@ -227,19 +227,24 @@ class DeBruijnGraph(AbstractDeBruijnGraph):
 
 class PairedDeBruijnGraph(AbstractDeBruijnGraph):
 
-    KMER_LEN = 10  # 20
-    HAMMING_DIST = 56
+    KMER_LEN = 27  # 20
+    HAMMING_DIST = 6
     # This is 2*DELTA where DELTA is the maximum disance from the true mean D, the distance between paried kmers.
-    ALLOWED_PAIRED_DIST_ERROR = 4
+    ALLOWED_PAIRED_DIST_ERROR = 6
 
-    def __init__(self, reads, d):
+    def __init__(self, reads, d, print_times=False, start_time=0):
         self.num_edges = 0
         # Indexed by (data, paired_data)/(prefix, paired_prefix)/(suffix, paired_suffix)
         self.nodes = defaultdict(dict)
         self.dist = d
+        self.print_times = print_times
+        if self.print_times:
+            self.start_time = start_time
         self._build_graph(reads)
 
     def enumerate_contigs(self):
+        if self.print_times:
+            print("STARTING TO ENUMERATE CONTIGS AT T=", time.time()-self.start_time)
         contigs = list()
         for _, nodes in self.nodes.items():
             for _, node in nodes.items():
@@ -247,7 +252,11 @@ class PairedDeBruijnGraph(AbstractDeBruijnGraph):
                     contig = self._get_longest_contig(node)
                     contigs.append(contig)
                 if self.num_edges == 0: 
+                    if self.print_times:
+                        print("FINISHED ENUMERATING CONTIGS AT T=", time.time()-self.start_time)
                     return contigs
+        if self.print_times:
+            print("FINISHED ENUMERATING CONTIGS AT T=", time.time()-self.start_time)
         return contigs
 
     def _get_longest_contig(self, start_node):
@@ -307,8 +316,14 @@ class PairedDeBruijnGraph(AbstractDeBruijnGraph):
         return "".join(contig_pieces)
 
     def _build_graph(self, reads):
+        start_time = time.time()
+        if self.print_times:
+            print("STARTING TO BUILD GRAPH AT T=", time.time()-self.start_time)
         kmer_counts, broken_read_pairs = PairedDeBruijnGraph._count_kmers(
             reads)
+
+        if self.print_times:
+            print("FINISHED COUNTING KMERS AT T=", time.time()-self.start_time)
 
         for read_pairs in broken_read_pairs:
             for prefix_paired, suffix_paired in AbstractDeBruijnGraph._pairwise(read_pairs):
@@ -345,11 +360,17 @@ class PairedDeBruijnGraph(AbstractDeBruijnGraph):
                     else:
                         continue
 
+        if self.print_times:
+            print("FINISHED ADDING EDGES AT T=", time.time() - self.start_time)
+
         # Mark was_branching nodes before graph gets consumed.
         for _, nodes in self.nodes.items():
             for _, node in nodes.items():
                 if node.outdegree > 1 or node.indegree > 1:
                     node.was_branching = True
+        
+        if self.print_times:
+            print("FINISHED BUILDING GRAPH AT T=", time.time()-self.start_time)
 
     def _find_matching_node(self, paired_strings):
         ''' Checks whether self.nodes has a node (A|B) node with matching A
@@ -365,8 +386,7 @@ class PairedDeBruijnGraph(AbstractDeBruijnGraph):
         return (False, None)
 
     @staticmethod
-    def _find_longest_overlap_brute(pattern, text):
-        MAX_MISMATCH = 0
+    def _find_longest_overlap_brute(pattern, text, max_mismatch=0):
         for start_text_pos in range(len(text) - PairedDeBruijnGraph.ALLOWED_PAIRED_DIST_ERROR):
             mismatches = 0
             len_possible_overlap = min(
@@ -375,7 +395,7 @@ class PairedDeBruijnGraph(AbstractDeBruijnGraph):
                 text_pos = start_text_pos + pattern_pos
                 if text[text_pos] != pattern[pattern_pos]:
                     mismatches += 1
-                    if mismatches > MAX_MISMATCH:
+                    if mismatches > max_mismatch:
                         break
             else:
                 return len_possible_overlap
@@ -388,10 +408,23 @@ class PairedDeBruijnGraph(AbstractDeBruijnGraph):
         '''
 
         kmer_counts = defaultdict(int)
+        # processed_reads = defaultdict(dict)
         broken_read_pairs = list()
         for cur_read_pair in reads:
+            # Need to count all kmers for error correction / filtering.
             paired_k_minus_one_mers = PairedDeBruijnGraph._break_read_into_k_minus_one_mers(
                 PairedDeBruijnGraph.KMER_LEN, cur_read_pair)
+
+            # However, there's no need to append the same read twice to the list of reads.
+            # Not sure this actually improves run time right now.
+            # if cur_read_pair[0] not in processed_reads:
+            #     broken_read_pairs.append(paired_k_minus_one_mers)
+            # else:
+            #     for read, _ in processed_reads[cur_read_pair[0]].items():
+            #         if PairedDeBruijnGraph._find_longest_overlap_brute(read, cur_read_pair[1], max_mismatch=1) == 0 and \
+            #             PairedDeBruijnGraph._find_longest_overlap_brute(read, cur_read_pair[1], max_mismatch=1) == 0:
+            #             broken_read_pairs.append(paired_k_minus_one_mers)
+            # processed_reads[cur_read_pair[0]][cur_read_pair[1]] = True
 
             broken_read_pairs.append(paired_k_minus_one_mers)
 
@@ -411,7 +444,7 @@ class PairedDeBruijnGraph(AbstractDeBruijnGraph):
 
 class IOHandler:
     @staticmethod
-    def read_input():
+    def read_input(print_times=False, start_time=0):
         ''' Returns a list of reads or read-pairs, not yet broken down,
             and indications of which (paired?, d).        
         '''
@@ -435,6 +468,9 @@ class IOHandler:
                 read = sys.stdin.readline().strip()
                 reads.append(read)
 
+        if print_times:
+            print("FINISHED READING INPUT AT T=", time.time()-start_time)
+
         return (reads, paired, int(d))
 
     @staticmethod
@@ -445,14 +481,24 @@ class IOHandler:
 
 
 def main():
-    reads, paired, d = IOHandler.read_input()
+    print_times = True
+    start_time = time.time()
+    if print_times:
+        print("STARTING ASSEMBLY PROGRAM AT T=", 0)
+
+    reads, paired, d = IOHandler.read_input(print_times=print_times, start_time=start_time)
+
     graph = None
     if paired:
-        graph = PairedDeBruijnGraph(reads, d)
+        graph = PairedDeBruijnGraph(reads, d, print_times=print_times, start_time=start_time)
     else:
         graph = DeBruijnGraph(reads)
+
     contigs = graph.enumerate_contigs()
     IOHandler.print_FASTA(contigs)
+    
+    if print_times:
+        print("PROGRAM FINISHED AT T=", time.time()-start_time)
 
 
 if __name__ == "__main__":
