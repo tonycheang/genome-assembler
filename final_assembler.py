@@ -17,7 +17,7 @@ sys.setswitchinterval(10000)
 
     The assembler must handle both regular reads and read-pairs. For the latter problem,
     a paired de Bruijn graph can be defined. Instead of outputting an Eulerian path--unique
-    construction can be rare--this assembler outputs contigs (non-was_branching segments).
+    construction can be rare--this assembler outputs contigs (non-branching segments).
 
     Data Sets Tested Against:
     N. Deltocephalinicola                - t = 34000,   len = 100,    coverage: 30
@@ -66,31 +66,26 @@ sys.setswitchinterval(10000)
 
 class Node:
     def __init__(self, data):
-        # data contains the prefix_paired/suffix_paired string
+        # Data contains the k-1mer/prefix/suffix
         self.data = data
         # Edges are the string, or the key into the constructor
         self.edges = dict()
+        # Bool may be set to True at the end of building the graph
         self.was_branching = False
         self.num_edges_in = 0
 
     @property
     def outdegree(self):
+        ''' Outdegree changes as edges get popped '''
         return len(self.edges)
 
     @property
     def indegree(self):
+        ''' Indegree stays set after graph is built '''
         return self.num_edges_in
 
-    @property
-    def has_available_edges(self):
-        return bool(self.edges)
-
-    @property
-    def has_available_reverse_edges(self):
-        return bool(self.reverse_edges)
-
     def pop_edge(self):
-        ''' Gets and removes a forward edge. '''
+        ''' Gets and removes an edge. '''
         return self.edges.popitem()
 
     def append_edge(self, edge):
@@ -98,17 +93,17 @@ class Node:
 
     def __repr__(self):
         ''' For debugging small examples. '''
-        return "Data: {0} | Pair: {1} | Edges: {2} | Reverse Edges: {3}" \
-            .format(self.data, self.paired_data, self.edges, self.reverse_edges)
-    
-    # def __sizeof__(self):
-    #     pass
+        return "Data: {0} | Edges: {2}".format(self.data, self.edges)
 
 
 class PairedNode(Node):
     def __init__(self, data, paired_data):
         self.paired_data = paired_data
         super().__init__(data)
+    
+    def __repr__(self):
+        ''' For debugging small examples. '''
+        return "Data: {0} | Pair: {1} | Edges: {2}".format(self.data, self.paired_data, self.edges)
 
 
 class AbstractDeBruijnGraph(ABC):
@@ -132,7 +127,7 @@ class AbstractDeBruijnGraph(ABC):
     @staticmethod
     @abstractmethod
     def _break_read_into_k_minus_one_mers(k, read):
-        ''' Breaks into list of prefix_pairedes and suffix_pairedes. '''
+        ''' Breaks into list of prefix_pairs and suffix_pairs. '''
         pass
 
     @staticmethod
@@ -157,7 +152,7 @@ class DeBruijnGraph(AbstractDeBruijnGraph):
         self.nodes = dict()
         self._build_graph(reads)
 
-    def enumerate_contigs(self):
+    def enumerate_contigs(self) -> list:
         contigs = list()
         for node_data in self.nodes:
             if self.nodes[node_data].outdegree > 0:
@@ -226,7 +221,7 @@ class DeBruijnGraph(AbstractDeBruijnGraph):
     @staticmethod
     def _break_read_into_k_minus_one_mers(k, read, paired=False):
         ''' Non-paired output format for 'ACTGAC', k=4: ['ACT', 'CTG', 'TGA', 'GAC'] '''
-        return [read[i:i+k-1] for i in range(len(read)-(k-2))]
+        return [sys.intern(read[i:i+k-1]) for i in range(len(read)-(k-2))]
 
 
 class PairedDeBruijnGraph(AbstractDeBruijnGraph):
@@ -245,7 +240,7 @@ class PairedDeBruijnGraph(AbstractDeBruijnGraph):
         del reads
         self._build_graph(kmer_counts, broken_read_pairs)
 
-    def enumerate_contigs(self):
+    def enumerate_contigs(self) -> list:
         # What if graph is perfectly circular?
         contigs = list()
         for _, nodes in self.nodes.items():
@@ -257,7 +252,7 @@ class PairedDeBruijnGraph(AbstractDeBruijnGraph):
                     return contigs
         return contigs
 
-    def _get_longest_contig(self, cur_node):
+    def _get_longest_contig(self, cur_node) -> str:
         ''' Builds up the contig in the specified direction until either a branching
             node is encountered or there are no more edges to traverse.
         '''
@@ -280,7 +275,7 @@ class PairedDeBruijnGraph(AbstractDeBruijnGraph):
 
         return "".join(contig_pieces)
 
-    def _build_graph(self, kmer_counts, broken_read_pairs):
+    def _build_graph(self, kmer_counts, broken_read_pairs) -> tuple:
 
         for read_pairs in broken_read_pairs:
             for prefix_paired, suffix_paired in AbstractDeBruijnGraph._pairwise(read_pairs):
@@ -325,7 +320,7 @@ class PairedDeBruijnGraph(AbstractDeBruijnGraph):
                 if node.outdegree > 1 or node.indegree > 1:
                     node.was_branching = True
 
-    def _find_matching_node(self, paired_strings):
+    def _find_matching_node(self, paired_strings) -> tuple:
         ''' Checks whether self.nodes has a node (A|B) node with matching A
             and a matching B. Matching A must be exact, while matching B can
             misalign by 2*DELTA or ALLOWED_PAIRED_DIST_ERROR
@@ -343,7 +338,7 @@ class PairedDeBruijnGraph(AbstractDeBruijnGraph):
         return (False, None)
 
     @staticmethod
-    def _find_longest_overlap_brute(pattern, text):
+    def _find_longest_overlap_brute(pattern, text) -> int:
         for start_text_pos in range(len(text) - PairedDeBruijnGraph.ALLOWED_PAIRED_DIST_ERROR):
             len_possible_overlap = min(len(text) - start_text_pos, len(pattern))
             for pattern_pos in range(len_possible_overlap):
@@ -355,7 +350,7 @@ class PairedDeBruijnGraph(AbstractDeBruijnGraph):
         return 0
 
     @staticmethod
-    def _count_kmers(reads):
+    def _count_kmers(reads) -> tuple:
         ''' Generates a structure to check whether a kmer appears frequently enough.
             Currently uses a dict but can switch over a count-min sketch if space is a concern.
         '''
@@ -376,7 +371,7 @@ class PairedDeBruijnGraph(AbstractDeBruijnGraph):
         return (kmer_counts, broken_read_pairs)
 
     @staticmethod
-    def _break_read_into_k_minus_one_mers(k, read):
+    def _break_read_into_k_minus_one_mers(k, read) -> list:
         ''' Paired output format for ('ACTGAC', 'TCGATC'), k=4: 
             [('ACT', 'TCG'), ('CTG', 'CGA'), ('TGA', 'GAT'), ('GAC', 'ATC')]
         '''
@@ -411,6 +406,8 @@ class DebugPairedDeBruijnGraph(PairedDeBruijnGraph):
             print_memory_snapshot("AFTER BUILDING GRAPH")
 
     def _count_kmers(self, reads):
+        if self.print_time:
+            print("STARTING TO COUNT KMERS AT T=", self.start_time)
         kmer_counts, broken_read_pairs = super()._count_kmers(reads)
         if self.print_memory:
             count_mem = sys.getsizeof(kmer_counts)
