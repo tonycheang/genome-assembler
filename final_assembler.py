@@ -9,7 +9,7 @@ import time
 import cProfile
 import tracemalloc
 
-# sys.setswitchinterval(10000)
+sys.setswitchinterval(10000)
 
 """ Implementing an Assembler
 
@@ -40,11 +40,10 @@ import tracemalloc
     
         - Building Contigs -
     
-    (5) Traverse each edge forward and backward to obtain a non-was_branching segment. This is a contig.
-            If starting at a branch (i.e. in/outdegree > 1), take any node forward and only go 
-                forward until next branch.
-            If starting at a middle section, take nodes forward and backward until a was_branching node.
-            If starting at a dead end, work backward until a was_branching node.
+    (5) Traverse each edge forward to obtain a non-was_branching segment. This is a contig.
+            If starting at a branch (i.e. in/outdegree > 1) or at the beginning of a tip,
+            take any node forward and only go forward until next branch.
+                Keep doing this for any remaining edges out of the original node.
 
             Traversal backward needs the correct forward edge removed. Maybe store in a dict?
     
@@ -59,56 +58,9 @@ import tracemalloc
             O(V[E**2]) doable for ~300 contigs, even 10**3 contigs.
             O(VE) algorithm exists if runtime becomes a concern.
 
-    --- Preliminary Test Results ---
-    (Time from time module and memory from Activity Monitor)
-    For 100,000 reads of length 100 each from N. Deltocephalinicola:
-        STARTING ASSEMBLY PROGRAM AT T= 0
-        FINISHED READING INPUT AT T= 1.0616950988769531
-        STARTING TO BUILD GRAPH AT T= 1.06174898147583
-        FINISHED COUNTING KMERS AT T= 13.7449312210083
-        FINISHED ADDING EDGES AT T= 146.9288830757141
-        FINISHED BUILDING GRAPH AT T= 146.99736309051514
-        STARTING TO ENUMERATE CONTIGS AT T= 147.64608526229858
-        FINISHED ENUMERATING CONTIGS AT T= 147.82946515083313
-        PROGRAM FINISHED AT T= 147.83732104301453
-        Memory Consumption: ~2 GB
-    For 200,000 reads of length 100 each from N. Deltocephalinicola:
-        STARTING ASSEMBLY PROGRAM AT T= 0
-        FINISHED READING INPUT AT T= 1.9468772411346436
-        STARTING TO BUILD GRAPH AT T= 1.9469482898712158
-        FINISHED COUNTING KMERS AT T= 29.306518077850342
-        FINISHED ADDING EDGES AT T= 300.31926918029785
-        FINISHED BUILDING GRAPH AT T= 300.39726734161377
-        STARTING TO ENUMERATE CONTIGS AT T= 301.8081531524658
-        FINISHED ENUMERATING CONTIGS AT T= 302.0127410888672
-        PROGRAM FINISHED AT T= 302.01618099212646
-        Memory Consumption: ~3.8 GB
-    For 200,000 reads of length 100 each from N. Deltocephalinicola:
-    (With slight modification to early exit with hash! Would some associative container help too?)
-        STARTING ASSEMBLY PROGRAM AT T= 0
-        FINISHED READING INPUT AT T= 1.9912371635437012
-        STARTING TO BUILD GRAPH AT T= 1.9912981986999512
-        FINISHED COUNTING KMERS AT T= 26.330377101898193
-        FINISHED BUILDING GRAPH AT T= 265.23331904411316
-        STARTING TO ENUMERATE CONTIGS AT T= 266.47291707992554
-        FINISHED ENUMERATING CONTIGS AT T= 266.6549780368805
-        PROGRAM FINISHED AT T= 266.6550042629242
-    For 400,000 reads of length 100 each from N. Deltocephalinicola:
-        STARTING ASSEMBLY PROGRAM AT T= 0
-        FINISHED READING INPUT AT T= 4.09502387046814
-        STARTING TO BUILD GRAPH AT T= 4.0950767993927
-        FINISHED COUNTING KMERS AT T= 58.88226580619812
-        FINISHED BUILDING GRAPH AT T= 560.3410959243774
-        STARTING TO ENUMERATE CONTIGS AT T= 565.3487329483032
-        FINISHED ENUMERATING CONTIGS AT T= 565.5448567867279
-        PROGRAM FINISHED AT T= 565.5449018478394
-        Memory Consumption: ~7.4 GB
-
-    Idea for saving memory: don't store backward edges. Rely on forward starts on branching nodes.
     What about processing each read through the graph as it comes in instead of storing an array?
     CountMin Sketch to estimate counts of each kmer to store in O(log(n)) space
         Profile to make sure the counts array is actually large...
-    Debug class for DeBruijn Graph using multiple inheritance?
 """
 
 
@@ -148,6 +100,9 @@ class Node:
         ''' For debugging small examples. '''
         return "Data: {0} | Pair: {1} | Edges: {2} | Reverse Edges: {3}" \
             .format(self.data, self.paired_data, self.edges, self.reverse_edges)
+    
+    # def __sizeof__(self):
+    #     pass
 
 
 class PairedNode(Node):
@@ -291,6 +246,7 @@ class PairedDeBruijnGraph(AbstractDeBruijnGraph):
         self._build_graph(kmer_counts, broken_read_pairs)
 
     def enumerate_contigs(self):
+        # What if graph is perfectly circular?
         contigs = list()
         for _, nodes in self.nodes.items():
             for _, node in nodes.items():
@@ -424,7 +380,7 @@ class PairedDeBruijnGraph(AbstractDeBruijnGraph):
         ''' Paired output format for ('ACTGAC', 'TCGATC'), k=4: 
             [('ACT', 'TCG'), ('CTG', 'CGA'), ('TGA', 'GAT'), ('GAC', 'ATC')]
         '''
-        return [(read[0][i:i+k-1], read[1][i:i+k-1]) for i in range(len(read[0])-(k-2))]
+        return [(sys.intern(read[0][i:i+k-1]), sys.intern(read[1][i:i+k-1])) for i in range(len(read[0])-(k-2))]
 
 
 class DebugPairedDeBruijnGraph(PairedDeBruijnGraph):
@@ -580,7 +536,7 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
-    # profile_assembler(print_runtime=False, print_memory=False)
+    # main()
+    profile_assembler(print_runtime=True, print_memory=False)
     # cProfile.run('main()')
     # cProfile.run('profile_assembler(print_runtime=True, print_memory=False)')
