@@ -139,9 +139,14 @@ class AbstractDeBruijnGraph(ABC):
 
 
 class DeBruijnGraph(AbstractDeBruijnGraph):
+    ''' Implementation relies on k-1mer being a single key into self.nodes.
+        This is unlike the PairedDeBruijnGraph, and allows for kmer_counts
+        to hold the entire edge, removing the need to keep track of reads
+        or all the k-1mers in a separate structure.
+    '''
 
-    KMER_LEN = 20
-    HAMMING_DIST = 5
+    KMER_LEN = 30
+    HAMMING_DIST = 4
     # This is 2*DELTA where DELTA is the maximum disance from the true mean D,
     # the distance between paried kmers.
     ALLOWED_PAIRED_DIST_ERROR = 6
@@ -150,62 +155,61 @@ class DeBruijnGraph(AbstractDeBruijnGraph):
         self.num_edges = 0
         # Indexed by data/prefix_paired/suffix_paired.
         self.nodes = dict()
-        self._build_graph(reads)
+        kmer_counts = DeBruijnGraph._count_kmers(reads)
+        del reads
+        self._build_graph(kmer_counts)
 
     def enumerate_contigs(self) -> list:
         contigs = list()
-        for node_data in self.nodes:
-            if self.nodes[node_data].outdegree > 0:
-                found, contig = self._get_longest_contig(node_data)
-                if found:
+        for _, node in self.nodes.items():
+            if node.outdegree > 0:
+                while node.outdegree > 0 and (node.was_branching or node.indegree == 0):          #
+                    contig = self._get_longest_contig(node)
                     contigs.append(contig)
+                if self.num_edges == 0:
+                    return contigs
         return contigs
 
-    def _get_longest_contig(self, start_node_data, visited):
+    def _get_longest_contig(self, cur_node) -> str:
         ''' Finds the longest contig by moving both forward and backward until
             nodes with branches are found.
         '''
-        chain = deque()
-        cur_node = self.nodes[start_node_data]
+        contig_pieces = deque()
+        # Ensures movement forward at least one edge.
+        edge, _ = cur_node.pop_edge()
+        self.num_edges -= 1
+        contig_pieces.append(edge[-1])
+        cur_node = self.nodes[edge]
 
-        # Only traverse backward if the starting node is non-branching.
-        if cur_node.outdegree == 1:
-            # HOW TO TRAVERSE BACKWARD???
-            pass
-        # If the node is branching, pick some edge.
-        elif cur_node.outdegree > 1:
-            chain.append(cur_node)
-            cur_node_data = cur_node.pop_edge()
-            cur_node = self.nodes[cur_node_data]
-        # Otherwise there are no outward edges. Let another node reach this one.
-        else:
-            return (False, None)
+        while cur_node.outdegree > 0 and not cur_node.was_branching:
+            edge, _ = cur_node.pop_edge()
+            self.num_edges -= 1
+            # Traversal forward adds the last character of next k-1mer
+            contig_pieces.append(edge[-1])
+            cur_node = self.nodes[edge]
+        
+        return "".join(contig_pieces)
 
-        # Traverse forward.
-        while cur_node.outdegree == 1:
-            chain.append(cur_node)
-            cur_node_data = cur_node.pop_edge()
-            cur_node = self.nodes[cur_node_data]
-
-        # DOUBLE CHECK THIS. Feel like it's different.
-        return (True, [node.data[-1] for node in chain])
-
-    def _build_graph(self, reads):
+    def _build_graph(self, kmer_counts):
         ''' Builds the path constructor with coverage considerations
             i.e. Filter out edges with coverage under our set Hamming distance
         '''
-        kmer_counts = DeBruijnGraph._count_kmers(reads)
         for edge, count in kmer_counts.items():
             prefix, suffix = edge[0], edge[1]
-            if count > DeBruijnGraph.HAMMING_DISTANCE:
+            if count > DeBruijnGraph.HAMMING_DIST:
                 if prefix not in self.nodes:
-                    self.nodes[prefix_paired] = Node(prefix)
+                    self.nodes[prefix] = Node(prefix)
                 if suffix not in self.nodes:
                     self.nodes[suffix] = Node(suffix)
 
                 self.nodes[prefix].append_edge(suffix)
-                self.nodes[suffix].append_reverse_edge(prefix)
+                self.nodes[suffix].num_edges_in += 1
                 self.num_edges += 1
+        
+        # Mark was_branching nodes before graph gets consumed.
+        for _, node in self.nodes.items():
+            if node.outdegree > 1 or node.indegree > 1:
+                node.was_branching = True
 
     @staticmethod
     def _count_kmers(reads):
@@ -225,11 +229,17 @@ class DeBruijnGraph(AbstractDeBruijnGraph):
 
 
 class PairedDeBruijnGraph(AbstractDeBruijnGraph):
+    ''' Implementation relies on idea of dual-key with paired-reads.
+        That is, self.nodes is a defaultdict of dicts; two keys are necessary to identify a node.
+        A tuple would have sufficed if paired reads were drawn with a perfect distance,
+        but since it's inexact, it's helpful to be able to iterate through the secondary dict
+        for key comparison.
+    '''
 
     KMER_LEN = 27
     HAMMING_DIST = 6
     # This is 2*DELTA where DELTA is the maximum disance from the true mean D, the distance between paried kmers.
-    ALLOWED_PAIRED_DIST_ERROR = 6
+    ALLOWED_PAIRED_DIST_ERROR = 8
 
     def __init__(self, reads, d):
         self.num_edges = 0
@@ -533,7 +543,7 @@ def main():
 
 
 if __name__ == "__main__":
-    # main()
-    profile_assembler(print_runtime=True, print_memory=False)
+    main()
+    # profile_assembler(print_runtime=True, print_memory=False)
     # cProfile.run('main()')
     # cProfile.run('profile_assembler(print_runtime=True, print_memory=False)')
