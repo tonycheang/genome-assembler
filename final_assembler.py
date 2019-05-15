@@ -94,6 +94,20 @@ class Node:
     def __repr__(self):
         ''' For debugging small examples. '''
         return "Data: {0} | Edges: {2}".format(self.data, self.edges)
+    
+    def __sizeof__(self):
+        if hasattr(self, "total_mem"):
+            return self.total_mem
+        total_mem = super().__sizeof__()
+        total_mem += sys.getsizeof(self.data)
+        total_mem += sys.getsizeof(self.edges)
+        for _, edge in self.edges:
+            total_mem += sys.getsizeof(edge)
+        total_mem += sys.getsizeof(self.was_branching)
+        total_mem += sys.getsizeof(self.num_edges_in)
+        self.total_mem = total_mem
+        self.total_mem += sys.getsizeof(self.total_mem)
+        return total_mem
 
 
 class PairedNode(Node):
@@ -104,6 +118,13 @@ class PairedNode(Node):
     def __repr__(self):
         ''' For debugging small examples. '''
         return "Data: {0} | Pair: {1} | Edges: {2}".format(self.data, self.paired_data, self.edges)
+    
+    def __sizeof__(self):
+        if hasattr(self, "total_mem"):
+            return self.total_mem
+        total_mem = super().__sizeof__() + sys.getsizeof(self.paired_data)
+        self.total_mem = total_mem
+        return total_mem
 
 
 class AbstractDeBruijnGraph(ABC):
@@ -145,8 +166,8 @@ class DeBruijnGraph(AbstractDeBruijnGraph):
         or all the k-1mers in a separate structure.
     '''
 
-    KMER_LEN = 30
-    HAMMING_DIST = 4
+    KMER_LEN = 29
+    HAMMING_DIST = 3
     # This is 2*DELTA where DELTA is the maximum disance from the true mean D,
     # the distance between paried kmers.
     ALLOWED_PAIRED_DIST_ERROR = 6
@@ -237,16 +258,16 @@ class PairedDeBruijnGraph(AbstractDeBruijnGraph):
     '''
 
     KMER_LEN = 27
-    HAMMING_DIST = 6
+    HAMMING_DIST = 5
     # This is 2*DELTA where DELTA is the maximum disance from the true mean D, the distance between paried kmers.
-    ALLOWED_PAIRED_DIST_ERROR = 8
+    ALLOWED_PAIRED_DIST_ERROR = 6
 
     def __init__(self, reads, d):
         self.num_edges = 0
         # Indexed by (data, paired_data)/(prefix, paired_prefix)/(suffix, paired_suffix)
         self.nodes = defaultdict(dict)
         self.dist = d
-        kmer_counts, broken_read_pairs = PairedDeBruijnGraph._count_kmers(reads)
+        kmer_counts, broken_read_pairs = self._count_kmers(reads)
         del reads
         self._build_graph(kmer_counts, broken_read_pairs)
 
@@ -389,8 +410,9 @@ class PairedDeBruijnGraph(AbstractDeBruijnGraph):
 
 
 class DebugPairedDeBruijnGraph(PairedDeBruijnGraph):
-    def __init__(self, reads, d, print_memory=False, print_runtime=False, start_time=0):
-        self.print_memory = print_memory
+    def __init__(self, reads, d, print_snapshot=False, print_syssizeof=False, print_runtime=False, start_time=0):
+        self.print_syssizeof = print_syssizeof
+        self.print_snapshot = print_snapshot
         self.print_runtime = print_runtime
         self.start_time = start_time
         super().__init__(reads, d)
@@ -401,7 +423,7 @@ class DebugPairedDeBruijnGraph(PairedDeBruijnGraph):
         contigs = super().enumerate_contigs()
         if self.print_runtime:
             print("FINISHED ENUMERATING CONTIGS AT T=", time.time()-self.start_time)
-        if self.print_memory:
+        if self.print_snapshot:
             print_memory_snapshot("AFTER ENUMERATE CONTIGS")
         return contigs
 
@@ -411,29 +433,43 @@ class DebugPairedDeBruijnGraph(PairedDeBruijnGraph):
         super()._build_graph(kmer_counts, broken_read_pairs)
         if self.print_runtime:
             print("FINISHED BUILDING GRAPH AT T=", time.time()-self.start_time)
-        if self.print_memory:
-            print("SIZE OF GRAPH: ", sys.getsizeof(self.nodes))
+        if self.print_syssizeof:
+            node_mem = 0
+            container_mem = sys.getsizeof(self.nodes)
+            for _, node_dict in self.nodes.items():
+                container_mem += sys.getsizeof(node_dict)
+                for _, node in node_dict.items():
+                    node_mem += sys.getsizeof(node)
+            print("SIZE OF GRAPH CONTAINER: ", container_mem)
+            print("SIZE OF ALL NODES: ", node_mem)
+        if self.print_snapshot:
             print_memory_snapshot("AFTER BUILDING GRAPH")
+            
 
     def _count_kmers(self, reads):
-        if self.print_time:
-            print("STARTING TO COUNT KMERS AT T=", self.start_time)
+        if self.print_runtime:
+            print("STARTING TO COUNT KMERS AT T=", time.time()-self.start_time)
         kmer_counts, broken_read_pairs = super()._count_kmers(reads)
-        if self.print_memory:
-            count_mem = sys.getsizeof(kmer_counts)
+        if self.print_syssizeof:
+            string_mem = 0
+            container_mem = sys.getsizeof(kmer_counts)
             for pair in kmer_counts.items():
-                count_mem += sys.getsizeof(pair)
-                count_mem += sys.getsizeof(pair[0])
-                count_mem += sys.getsizeof(pair[1])
-            print("SIZE OF COUNTS: ", count_mem)
-            total_mem = sys.getsizeof(broken_read_pairs)
+                container_mem += sys.getsizeof(pair)
+                string_mem += sys.getsizeof(pair[0])
+                string_mem += sys.getsizeof(pair[1])
+            print("SIZE OF COUNTS CONTAINER: ", container_mem)
+            print("SIZE OF STRINGS IN COUNTS", string_mem)
+            container_mem = sys.getsizeof(broken_read_pairs)
+            string_mem = 0
             for read_pairs in broken_read_pairs:
-                total_mem += sys.getsizeof(read_pairs)
+                container_mem += sys.getsizeof(read_pairs)
                 for pair in read_pairs:
-                    total_mem += sys.getsizeof(pair)
-                    total_mem += sys.getsizeof(pair[0])
-                    total_mem += sys.getsizeof(pair[1])
-            print("SIZE OF TOTAL K-1MER-PAIRS: ", total_mem)
+                    container_mem += sys.getsizeof(pair)
+                    string_mem += sys.getsizeof(pair[0])
+                    string_mem += sys.getsizeof(pair[1])
+            print("SIZE OF BROKEN-READ-PAIRS: ", container_mem)
+            print("SIZE OF STRINGS IN B-R-P", string_mem)
+        if self.print_snapshot:
             print_memory_snapshot("AFTER COUNTING KMERS")
         if self.print_runtime:
             print("FINISHED COUNTING KMERS AT T=", time.time()-self.start_time)
@@ -477,7 +513,7 @@ class IOHandler:
 
 class DebugIOHandler(IOHandler):
     @staticmethod
-    def read_input(print_runtime=True, print_memory=False, start_time=0):
+    def read_input(print_runtime=True, print_snapshot=False, print_syssizeof=False, start_time=0):
         if print_runtime:
             print("STARTING ASSEMBLY PROGRAM AT T=", 0)
 
@@ -485,12 +521,13 @@ class DebugIOHandler(IOHandler):
 
         if print_runtime:
             print("FINISHED READING INPUT AT T=", time.time()-start_time)
-        if print_memory:
+        if print_syssizeof:
             print("SIZE OF READS: ", sys.getsizeof(reads))
             total_string_memory = 0
             for read in reads:
                 total_string_memory += sys.getsizeof(read)
             print("SIZE OF ALL READS: ", total_string_memory)
+        if print_snapshot:
             print_memory_snapshot("AFTER READING INPUT")
 
         return (reads, paired, int(d))
@@ -510,18 +547,20 @@ def print_memory_snapshot(location):
     return
 
 
-def profile_assembler(print_runtime=False, print_memory=False):
+def profile_assembler(print_runtime=False, print_snapshot=False, print_syssizeof=False):
 
-    if print_memory:
+    if print_snapshot:
         tracemalloc.start(25)
     start_time = time.time()
 
     reads, paired, d = DebugIOHandler.read_input(
-        print_runtime=print_runtime, print_memory=print_memory, start_time=start_time)
+        print_runtime=print_runtime, print_snapshot=print_snapshot, start_time=start_time,
+        print_syssizeof=print_syssizeof)
     graph = None
     if paired:
         graph = DebugPairedDeBruijnGraph(reads=reads, d=d, print_runtime=print_runtime,
-                                         start_time=start_time, print_memory=print_memory)
+                                         start_time=start_time, print_syssizeof=print_syssizeof,
+                                         print_snapshot=print_snapshot)
     else:
         graph = DeBruijnGraph(reads)
     contigs = graph.enumerate_contigs()
@@ -543,7 +582,7 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
-    # profile_assembler(print_runtime=True, print_memory=False)
+    # main()
+    profile_assembler(print_runtime=True, print_syssizeof=True, print_snapshot=False)
     # cProfile.run('main()')
-    # cProfile.run('profile_assembler(print_runtime=True, print_memory=False)')
+    # cProfile.run('profile_assembler(print_runtime=True, print_syssizeof=False, print_snapshot=False)')
