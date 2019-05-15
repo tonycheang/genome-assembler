@@ -10,8 +10,6 @@ import time
 import cProfile
 import tracemalloc
 
-sys.setswitchinterval(10000)
-
 """ Implementing an Assembler
 
     --- Goal ---
@@ -59,7 +57,8 @@ sys.setswitchinterval(10000)
             O(V[E**2]) doable for ~300 contigs, even 10**3 contigs.
             O(VE) algorithm exists if runtime becomes a concern.
 
-    What about processing each read through the graph as it comes in instead of storing an array?
+    Do not store all k-1mers when counting them. Re-slice when building graph.
+        This should save a lot of string overhead and runtime is negligible.
     CountMin Sketch to estimate counts of each kmer to store in O(log(n)) space
         Profile to make sure the counts array is actually large...
 """
@@ -421,20 +420,20 @@ class DebugPairedDeBruijnGraph(PairedDeBruijnGraph):
 
     def enumerate_contigs(self):
         if self.print_runtime:
-            print("\n---STARTING TO ENUMERATE CONTIGS AT T=", time.time()-self.start_time,"---")
+            print("\n--- STARTING TO ENUMERATE CONTIGS AT T = {:.2f} ---".format(time.time()-self.start_time))
         contigs = super().enumerate_contigs()
         if self.print_runtime:
-            print("FINISHED ENUMERATING CONTIGS AT T=", time.time()-self.start_time)
+            print("FINISHED ENUMERATING CONTIGS AT T = {:.2f} ---".format(time.time()-self.start_time))
         if self.print_snapshot:
             print_memory_snapshot("AFTER ENUMERATE CONTIGS")
         return contigs
 
     def _build_graph(self, kmer_counts, broken_read_pairs):
         if self.print_runtime:
-            print("\n--- STARTING TO BUILD GRAPH AT T =", time.time()-self.start_time,"---")
+            print("\n--- STARTING TO BUILD GRAPH AT T = {:.2f} ---".format(time.time()-self.start_time))
         super()._build_graph(kmer_counts, broken_read_pairs)
         if self.print_runtime:
-            print("FINISHED BUILDING GRAPH AT T =", time.time()-self.start_time)
+            print("FINISHED BUILDING GRAPH AT T = {:.2f}".format(time.time()-self.start_time))
         if self.print_syssizeof:
             node_mem = 0
             container_mem = sys.getsizeof(self.nodes)
@@ -442,26 +441,28 @@ class DebugPairedDeBruijnGraph(PairedDeBruijnGraph):
                 container_mem += sys.getsizeof(node_dict)
                 for _, node in node_dict.items():
                     node_mem += sys.getsizeof(node)
-            print("SIZE OF GRAPH CONTAINER: ", container_mem)
-            print("SIZE OF ALL NODES: ", node_mem)
+            print("SIZE OF GRAPH CONTAINER: {:,}".format(container_mem))
+            print("SIZE OF ALL NODES: {:,}".format(node_mem))
         if self.print_snapshot:
             print_memory_snapshot("AFTER BUILDING GRAPH")
             
 
     def _count_kmers(self, reads):
         if self.print_runtime:
-            print("\n--- STARTING TO COUNT KMERS AT T =", time.time()-self.start_time, "---")
+            print("\n--- STARTING TO COUNT KMERS AT T = {:.2f} ---".format(time.time()-self.start_time))
         kmer_counts, broken_read_pairs = super()._count_kmers(reads)
+        if self.print_runtime:
+            print("FINISHED COUNTING KMERS AT T = {:.2f}".format(time.time()-self.start_time))
         if self.print_syssizeof:
             string_mem = 0
             container_mem = sys.getsizeof(kmer_counts)
-            print("SIZE OF COUNTS CONTAINER WITHOUT TUPLES: ", container_mem)
+            print("SIZE OF COUNTS CONTAINER WITHOUT TUPLES: {:,}".format(container_mem))
             for pair in kmer_counts.items():
                 container_mem += sys.getsizeof(pair)
                 string_mem += sys.getsizeof(pair[0])
                 string_mem += sys.getsizeof(pair[1])
-            print("SIZE OF COUNTS CONTAINER: ", container_mem)
-            print("SIZE OF STRINGS IN COUNTS: ", string_mem)
+            print("SIZE OF COUNTS CONTAINER: {:,}".format(container_mem))
+            print("SIZE OF STRINGS IN COUNTS: {:,}".format(string_mem))
             container_mem = sys.getsizeof(broken_read_pairs)
             string_mem = 0
             for read_pairs in broken_read_pairs:
@@ -470,12 +471,10 @@ class DebugPairedDeBruijnGraph(PairedDeBruijnGraph):
                     container_mem += sys.getsizeof(pair)
                     string_mem += sys.getsizeof(pair[0])
                     string_mem += sys.getsizeof(pair[1])
-            print("SIZE OF BROKEN-READ-PAIRS CONTAINER: ", container_mem)
-            print("SIZE OF STRINGS IN BROKEN-READ-PAIRS", string_mem)
+            print("SIZE OF BROKEN-READ-PAIRS CONTAINER: {:,}".format(container_mem))
+            print("SIZE OF STRINGS IN BROKEN-READ-PAIRS: {:,}".format( string_mem))
         if self.print_snapshot:
             print_memory_snapshot("AFTER COUNTING KMERS")
-        if self.print_runtime:
-            print("FINISHED COUNTING KMERS AT T =", time.time()-self.start_time)
         return kmer_counts, broken_read_pairs
 
 
@@ -518,18 +517,18 @@ class DebugIOHandler(IOHandler):
     @staticmethod
     def read_input(print_runtime=True, print_snapshot=False, print_syssizeof=False, start_time=0):
         if print_runtime:
-            print("\n--- STARTING ASSEMBLY PROGRAM AT T = 0 ---")
+            print("\n--- STARTING ASSEMBLY PROGRAM AT T = 0.00 ---")
 
         reads, paired, d = IOHandler.read_input()
 
         if print_runtime:
-            print("FINISHED READING INPUT AT T =", time.time()-start_time)
+            print("FINISHED READING INPUT AT T = {:.2f}".format(time.time()-start_time))
         if print_syssizeof:
-            print("SIZE OF READS: ", sys.getsizeof(reads))
             total_string_memory = 0
             for read in reads:
                 total_string_memory += sys.getsizeof(read)
-            print("SIZE OF ALL READS: ", total_string_memory)
+            print("SIZE OF READ CONTAINER: {:,}".format(sys.getsizeof(reads)))
+            print("SIZE OF ALL READ STRINGS: {:,}".format(total_string_memory))
         if print_snapshot:
             print_memory_snapshot("AFTER READING INPUT")
 
@@ -570,7 +569,7 @@ def profile_assembler(print_runtime=False, print_snapshot=False, print_syssizeof
     DebugIOHandler.print_FASTA(contigs)
 
     if print_runtime:
-        print("PROGRAM FINISHED AT T=", time.time()-start_time)
+        print("--- PROGRAM FINISHED AT T = {:.2f} ---".format(time.time()-start_time))
 
 
 def main():
@@ -585,7 +584,8 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
-    # profile_assembler(print_runtime=True, print_syssizeof=False, print_snapshot=False)
+    sys.setswitchinterval(10000)
+    # main()
+    profile_assembler(print_runtime=True, print_syssizeof=True, print_snapshot=False)
     # cProfile.run('main()')
     #cProfile.run('profile_assembler(print_runtime=True, print_syssizeof=False, print_snapshot=False)')
