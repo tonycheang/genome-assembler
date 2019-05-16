@@ -94,7 +94,7 @@ class Node:
     def __repr__(self):
         ''' For debugging small examples. '''
         return "Data: {0} | Edges: {2}".format(self.data, self.edges)
-    
+
     def __sizeof__(self):
         if hasattr(self, "total_mem"):
             return self.total_mem
@@ -114,11 +114,11 @@ class PairedNode(Node):
     def __init__(self, data, paired_data):
         self.paired_data = paired_data
         super().__init__(data)
-    
+
     def __repr__(self):
         ''' For debugging small examples. '''
         return "Data: {0} | Pair: {1} | Edges: {2}".format(self.data, self.paired_data, self.edges)
-    
+
     def __sizeof__(self):
         if hasattr(self, "total_mem"):
             return self.total_mem
@@ -182,13 +182,24 @@ class DeBruijnGraph(AbstractDeBruijnGraph):
 
     def enumerate_contigs(self) -> list:
         contigs = list()
+        total_len = 0
         for _, node in self.nodes.items():
-            if node.outdegree > 0:
-                while node.outdegree > 0 and (node.was_branching or node.indegree == 0):          #
-                    contig = self._get_longest_contig(node)
-                    contigs.append(contig)
-                if self.num_edges == 0:
-                    return contigs
+            while node.outdegree > 0 and (node.was_branching or node.indegree == 0):          #
+                contig = self._get_longest_contig(node)
+                contigs.append(contig)
+                total_len += len(contig)
+            if self.num_edges == 0:
+                return contigs
+        
+        # Handles when some sub contig is perfectly circular
+        # All non-circular segments will have been found by iteration above.
+        for _, nodes in self.nodes.items():
+            while node.outdegree > 0:          #
+                contig = self._get_longest_contig(node)
+                contigs.append(contig)
+                total_len += len(contig)
+            if self.num_edges == 0:
+                return contigs
         return contigs
 
     def _get_longest_contig(self, cur_node) -> str:
@@ -208,7 +219,7 @@ class DeBruijnGraph(AbstractDeBruijnGraph):
             # Traversal forward adds the last character of next k-1mer
             contig_pieces.append(edge[-1])
             cur_node = self.nodes[edge]
-        
+
         return "".join(contig_pieces)
 
     def _build_graph(self, kmer_counts):
@@ -226,7 +237,7 @@ class DeBruijnGraph(AbstractDeBruijnGraph):
                 self.nodes[prefix].append_edge(suffix)
                 self.nodes[suffix].num_edges_in += 1
                 self.num_edges += 1
-        
+
         # Mark was_branching nodes before graph gets consumed.
         for _, node in self.nodes.items():
             if node.outdegree > 1 or node.indegree > 1:
@@ -267,18 +278,29 @@ class PairedDeBruijnGraph(AbstractDeBruijnGraph):
         # Indexed by (data, paired_data)/(prefix, paired_prefix)/(suffix, paired_suffix)
         self.nodes = defaultdict(dict)
         self.dist = d
-        kmer_counts, broken_read_pairs = self._count_kmers(reads)
-        del reads
-        self._build_graph(kmer_counts, broken_read_pairs)
+        kmer_counts = self._count_kmers(reads)
+        self._build_graph(kmer_counts, reads)
 
     def enumerate_contigs(self) -> list:
-        # What if graph is perfectly circular?
         contigs = list()
+        total_len = 0
         for _, nodes in self.nodes.items():
             for _, node in nodes.items():
                 while node.outdegree > 0 and (node.was_branching or node.indegree == 0):          #
                     contig = self._get_longest_contig(node)
                     contigs.append(contig)
+                    total_len += len(contig)
+                if self.num_edges == 0:
+                    return contigs
+        
+        # Handles when some sub contig is perfectly circular
+        # All non-circular segments will have been found by iteration above.
+        for _, nodes in self.nodes.items():
+            for _, node in nodes.items():
+                while node.outdegree > 0:          #
+                    contig = self._get_longest_contig(node)
+                    contigs.append(contig)
+                    total_len += len(contig)
                 if self.num_edges == 0:
                     return contigs
         return contigs
@@ -306,9 +328,10 @@ class PairedDeBruijnGraph(AbstractDeBruijnGraph):
 
         return "".join(contig_pieces)
 
-    def _build_graph(self, kmer_counts, broken_read_pairs) -> tuple:
+    def _build_graph(self, kmer_counts, reads) -> tuple:
 
-        for read_pairs in broken_read_pairs:
+        for read in reads:
+            read_pairs = self._break_read_into_k_minus_one_mers(self.KMER_LEN, read)
             for prefix_paired, suffix_paired in AbstractDeBruijnGraph._pairwise(read_pairs):
                 # Indiscriminately filters any edge that has an erroneous k-mer
                 if kmer_counts[(prefix_paired[0], suffix_paired[0])] > PairedDeBruijnGraph.HAMMING_DIST and \
@@ -382,25 +405,23 @@ class PairedDeBruijnGraph(AbstractDeBruijnGraph):
         return 0
 
     @staticmethod
-    def _count_kmers(reads) -> tuple:
+    def _count_kmers(reads) -> defaultdict:
         ''' Generates a structure to check whether a kmer appears frequently enough.
+            Does not save the k-1mers to trade runtime for space.
             Currently uses a dict but can switch over a count-min sketch if space is a concern.
         '''
 
         kmer_counts = defaultdict(int)
-        broken_read_pairs = list()
         for cur_read_pair in reads:
             # Need to count all kmers for error correction / filtering.
             paired_k_minus_one_mers = PairedDeBruijnGraph._break_read_into_k_minus_one_mers(
                 PairedDeBruijnGraph.KMER_LEN, cur_read_pair)
 
-            broken_read_pairs.append(paired_k_minus_one_mers)
-
             for prefix_paired_paired, suffix_paired_paired in AbstractDeBruijnGraph._pairwise(paired_k_minus_one_mers):
                 # Each kmer_pair generates two kmers, each of which we'll count for coverage.
                 kmer_counts[(prefix_paired_paired[0], suffix_paired_paired[0])] += 1
                 kmer_counts[(prefix_paired_paired[1], suffix_paired_paired[1])] += 1
-        return (kmer_counts, broken_read_pairs)
+        return kmer_counts
 
     @staticmethod
     def _break_read_into_k_minus_one_mers(k, read) -> list:
@@ -420,17 +441,20 @@ class DebugPairedDeBruijnGraph(PairedDeBruijnGraph):
 
     def enumerate_contigs(self):
         if self.print_runtime:
-            print("\n--- STARTING TO ENUMERATE CONTIGS AT T = {:.2f} ---".format(time.time()-self.start_time))
+            print(
+                "\n--- STARTING TO ENUMERATE CONTIGS AT T = {:.2f} ---".format(time.time()-self.start_time))
         contigs = super().enumerate_contigs()
         if self.print_runtime:
-            print("FINISHED ENUMERATING CONTIGS AT T = {:.2f} ---".format(time.time()-self.start_time))
+            print(
+                "FINISHED ENUMERATING CONTIGS AT T = {:.2f} ---".format(time.time()-self.start_time))
         if self.print_snapshot:
             print_memory_snapshot("AFTER ENUMERATE CONTIGS")
         return contigs
 
     def _build_graph(self, kmer_counts, broken_read_pairs):
         if self.print_runtime:
-            print("\n--- STARTING TO BUILD GRAPH AT T = {:.2f} ---".format(time.time()-self.start_time))
+            print(
+                "\n--- STARTING TO BUILD GRAPH AT T = {:.2f} ---".format(time.time()-self.start_time))
         super()._build_graph(kmer_counts, broken_read_pairs)
         if self.print_runtime:
             print("FINISHED BUILDING GRAPH AT T = {:.2f}".format(time.time()-self.start_time))
@@ -445,12 +469,12 @@ class DebugPairedDeBruijnGraph(PairedDeBruijnGraph):
             print("SIZE OF ALL NODES: {:,}".format(node_mem))
         if self.print_snapshot:
             print_memory_snapshot("AFTER BUILDING GRAPH")
-            
 
     def _count_kmers(self, reads):
         if self.print_runtime:
-            print("\n--- STARTING TO COUNT KMERS AT T = {:.2f} ---".format(time.time()-self.start_time))
-        kmer_counts, broken_read_pairs = super()._count_kmers(reads)
+            print(
+                "\n--- STARTING TO COUNT KMERS AT T = {:.2f} ---".format(time.time()-self.start_time))
+        kmer_counts = super()._count_kmers(reads)
         if self.print_runtime:
             print("FINISHED COUNTING KMERS AT T = {:.2f}".format(time.time()-self.start_time))
         if self.print_syssizeof:
@@ -463,19 +487,9 @@ class DebugPairedDeBruijnGraph(PairedDeBruijnGraph):
                 string_mem += sys.getsizeof(pair[1])
             print("SIZE OF COUNTS CONTAINER: {:,}".format(container_mem))
             print("SIZE OF STRINGS IN COUNTS: {:,}".format(string_mem))
-            container_mem = sys.getsizeof(broken_read_pairs)
-            string_mem = 0
-            for read_pairs in broken_read_pairs:
-                container_mem += sys.getsizeof(read_pairs)
-                for pair in read_pairs:
-                    container_mem += sys.getsizeof(pair)
-                    string_mem += sys.getsizeof(pair[0])
-                    string_mem += sys.getsizeof(pair[1])
-            print("SIZE OF BROKEN-READ-PAIRS CONTAINER: {:,}".format(container_mem))
-            print("SIZE OF STRINGS IN BROKEN-READ-PAIRS: {:,}".format( string_mem))
         if self.print_snapshot:
             print_memory_snapshot("AFTER COUNTING KMERS")
-        return kmer_counts, broken_read_pairs
+        return kmer_counts
 
 
 class IOHandler:
