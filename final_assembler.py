@@ -5,6 +5,9 @@ from abc import ABC, abstractmethod
 from collections import deque, defaultdict
 from itertools import tee, combinations
 from functools import lru_cache
+from random import randint
+from statistics import median_low
+from math import log
 import time
 
 import cProfile
@@ -57,11 +60,117 @@ import tracemalloc
             O(V[E**2]) doable for ~300 contigs, even 10**3 contigs.
             O(VE) algorithm exists if runtime becomes a concern.
 
-    Do not store all k-1mers when counting them. Re-slice when building graph.
-        This should save a lot of string overhead and runtime is negligible.
     CountMin Sketch to estimate counts of each kmer to store in O(log(n)) space
-        Profile to make sure the counts array is actually large...
 """
+
+
+class CountMinSketch:
+    # 90 Primes
+    # primes = [401, 409, 419, 421, 431, 433, 439, 443, 449, 457,
+    #           461, 463, 467, 479, 487, 491, 499, 503, 509, 521,
+    #           523, 541, 547, 557, 563, 569, 571, 577, 587, 593,
+    #           599, 601, 607, 613, 617, 619, 631, 641, 643, 647,
+    #           653, 659, 661, 673, 677, 683, 691, 701, 709, 719,
+    #           727, 733, 739, 743, 751, 757, 761, 769, 773, 787,
+    #           797, 809, 811, 821, 823, 827, 829, 839, 853, 857,
+    #           859, 863, 877, 881, 883, 887, 907, 911, 919, 929,
+    #           937, 941, 947, 953, 967, 971, 977, 983, 991, 997]
+    # 20 Primes
+    # primes = [1000003,1000033,1000037,1000039,1000081,
+    #           1000099,1000117,1000121,1000133,1000151,
+    #           1000159,1000171,1000183,1000187,1000193,
+    #           1000199,1000211,1000213,1000231,1000249]
+    # 17 Primes
+    primes = [357229,357239,357241,357263,357271,357281,
+              357283,357293,357319,357347,357349,357353,
+              357359,357377,357389,357421,357431,357437,
+              357473,357503]
+    # 17 Primes
+    # primes = [500009,500029,500041,500057,500069,500083,
+    #           500107,500111,500113,500119,500153,500167,
+    #           500173,500177,500179,500197,500209,500231,
+    #           500233,500237]
+
+    def __init__(self, t, string_size):
+        assert t < 17, "Can only have 17 rows in this CountMinSketch"
+        self.t = t
+        self.hash_values = [[0] * CountMinSketch.primes[i] for i in range(t)]
+
+    def update(self, string, amount):
+        string_hash = self._hash(string)
+        for row in range(self.t):
+            self.hash_values[row][string_hash % len(self.hash_values[row])] += amount
+
+    def estimate(self, string):
+        string_hash = self._hash(string)
+        est_from_min = min(self.hash_values[row][string_hash %
+                                                 len(self.hash_values[row])] for row in range(self.t))
+        return est_from_min
+
+    @staticmethod
+    @lru_cache(maxsize=512)
+    def _hash(data, seed=0):
+        ''' MurmurHash3 x86_32 port from Java by Maurus Decimus via StackOverflow'''
+        c1 = 0xcc9e2d51
+        c2 = 0x1b873593
+
+        length = len(data)
+        h1 = seed
+        roundedEnd = (length & 0xfffffffc)  # round down to 4 byte block
+        for i in range(0, roundedEnd, 4):
+            # little endian load order
+            k1 = (ord(data[i]) & 0xff) | ((ord(data[i + 1]) & 0xff) << 8) | \
+                ((ord(data[i + 2]) & 0xff) << 16) | (ord(data[i + 3]) << 24)
+            k1 *= c1
+            k1 = (k1 << 15) | ((k1 & 0xffffffff) >> 17)  # ROTL32(k1,15)
+            k1 *= c2
+
+            h1 ^= k1
+            h1 = (h1 << 13) | ((h1 & 0xffffffff) >> 19)  # ROTL32(h1,13)
+            h1 = h1 * 5 + 0xe6546b64
+
+        # tail
+        k1 = 0
+
+        val = length & 0x03
+        if val == 3:
+            k1 = (ord(data[roundedEnd + 2]) & 0xff) << 16
+        # fallthrough
+        if val in [2, 3]:
+            k1 |= (ord(data[roundedEnd + 1]) & 0xff) << 8
+        # fallthrough
+        if val in [1, 2, 3]:
+            k1 |= ord(data[roundedEnd]) & 0xff
+            k1 *= c1
+            k1 = (k1 << 15) | ((k1 & 0xffffffff) >> 17)  # ROTL32(k1,15)
+            k1 *= c2
+            h1 ^= k1
+
+        # finalization
+        h1 ^= length
+
+        # fmix(h1)
+        h1 ^= ((h1 & 0xffffffff) >> 16)
+        h1 *= 0x85ebca6b
+        h1 ^= ((h1 & 0xffffffff) >> 13)
+        h1 *= 0xc2b2ae35
+        h1 ^= ((h1 & 0xffffffff) >> 16)
+
+        return h1 & 0xffffffff
+
+    def __sizeof__(self):
+        if hasattr(self, "total_mem"):
+            return self.total_mem
+        total_mem = 0
+        total_mem += sys.getsizeof(self.t)
+        total_mem += sys.getsizeof(self.hash_values)
+        for row in self.hash_values:
+            total_mem += sys.getsizeof(row)
+            for member in row:
+                total_mem += sys.getsizeof(member)
+        self.total_mem = total_mem
+        self.total_mem += sys.getsizeof(total_mem)
+        return total_mem
 
 
 class Node:
@@ -190,7 +299,7 @@ class DeBruijnGraph(AbstractDeBruijnGraph):
                 total_len += len(contig)
             if self.num_edges == 0:
                 return contigs
-        
+
         # Handles when some sub contig is perfectly circular
         # All non-circular segments will have been found by iteration above.
         for _, nodes in self.nodes.items():
@@ -268,8 +377,8 @@ class PairedDeBruijnGraph(AbstractDeBruijnGraph):
         for key comparison.
     '''
 
-    KMER_LEN = 27
-    HAMMING_DIST = 5
+    KMER_LEN = 28
+    HAMMING_DIST = 4
     # This is 2*DELTA where DELTA is the maximum disance from the true mean D, the distance between paried kmers.
     ALLOWED_PAIRED_DIST_ERROR = 6
 
@@ -278,8 +387,10 @@ class PairedDeBruijnGraph(AbstractDeBruijnGraph):
         # Indexed by (data, paired_data)/(prefix, paired_prefix)/(suffix, paired_suffix)
         self.nodes = defaultdict(dict)
         self.dist = d
-        kmer_counts = self._count_kmers(reads)
-        self._build_graph(kmer_counts, reads)
+        kmer_counts_dict = self._count_kmers(reads)
+        kmer_counts_sketch = self._put_kmer_counts_into_countmin_sketch(kmer_counts_dict)
+        del kmer_counts_dict
+        self._build_graph(kmer_counts_sketch, reads)
 
     def enumerate_contigs(self) -> list:
         contigs = list()
@@ -292,7 +403,7 @@ class PairedDeBruijnGraph(AbstractDeBruijnGraph):
                     total_len += len(contig)
                 if self.num_edges == 0:
                     return contigs
-        
+
         # Handles when some sub contig is perfectly circular
         # All non-circular segments will have been found by iteration above.
         for _, nodes in self.nodes.items():
@@ -330,12 +441,38 @@ class PairedDeBruijnGraph(AbstractDeBruijnGraph):
 
     def _build_graph(self, kmer_counts, reads) -> tuple:
 
-        for read in reads:
+        for i, read in enumerate(reads):
+            # if i % 3000 == 0:
+            #     print("Processing read no.", i)
             read_pairs = self._break_read_into_k_minus_one_mers(self.KMER_LEN, read)
+            skip = 0
             for prefix_paired, suffix_paired in AbstractDeBruijnGraph._pairwise(read_pairs):
-                # Indiscriminately filters any edge that has an erroneous k-mer
-                if kmer_counts[(prefix_paired[0], suffix_paired[0])] > PairedDeBruijnGraph.HAMMING_DIST and \
-                        kmer_counts[(prefix_paired[1], suffix_paired[1])] > PairedDeBruijnGraph.HAMMING_DIST:
+                # Indiscriminately filters any edge that has an erroneous k-1mer
+                # if kmer_counts[prefix_paired[0]] > PairedDeBruijnGraph.HAMMING_DIST and \
+                #         kmer_counts[suffix_paired[0]] > PairedDeBruijnGraph.HAMMING_DIST and \
+                #         kmer_counts[prefix_paired[1]] > PairedDeBruijnGraph.HAMMING_DIST and \
+                #         kmer_counts[suffix_paired[1]] > PairedDeBruijnGraph.HAMMING_DIST:
+                if skip > 0:
+                    skip -= 1
+                    continue
+
+                est1 = kmer_counts.estimate(prefix_paired[0])
+                est2 = kmer_counts.estimate(prefix_paired[1])
+                est3 = kmer_counts.estimate(suffix_paired[0])
+                est4 = kmer_counts.estimate(suffix_paired[1])
+
+                if est1 <= PairedDeBruijnGraph.HAMMING_DIST or est2 <= PairedDeBruijnGraph.HAMMING_DIST or \
+                    est3 <= PairedDeBruijnGraph.HAMMING_DIST or est4 <= PairedDeBruijnGraph.HAMMING_DIST:
+                    skip = int(PairedDeBruijnGraph.HAMMING_DIST//4)
+                    continue
+
+                if est1 > PairedDeBruijnGraph.HAMMING_DIST and est2 > PairedDeBruijnGraph.HAMMING_DIST and \
+                    est3 > PairedDeBruijnGraph.HAMMING_DIST and est4 > PairedDeBruijnGraph.HAMMING_DIST:
+                # if kmer_counts.estimate(prefix_paired[0]) > PairedDeBruijnGraph.HAMMING_DIST and \
+                #     kmer_counts.estimate(suffix_paired[0]) > PairedDeBruijnGraph.HAMMING_DIST and \
+                #     kmer_counts.estimate(prefix_paired[1]) > PairedDeBruijnGraph.HAMMING_DIST and \
+                #     kmer_counts.estimate(suffix_paired[1]) > PairedDeBruijnGraph.HAMMING_DIST:
+                        
 
                     # Check whether the each node already exists, accounting for inexact distance between paired reads.
                     # self._find_matching_node() will set the node variables to existing  nodes if they exist.
@@ -410,17 +547,30 @@ class PairedDeBruijnGraph(AbstractDeBruijnGraph):
             Does not save the k-1mers to trade runtime for space.
             Currently uses a dict but can switch over a count-min sketch if space is a concern.
         '''
-
-        kmer_counts = defaultdict(int)
-        for cur_read_pair in reads:
+        kmer_counts_dict = defaultdict(int)
+        for i, cur_read_pair in enumerate(reads):
+            # if i % 1000 == 0:
+            #     print("PROCESSING READ", i)
             # Need to count all kmers for error correction / filtering.
             paired_k_minus_one_mers = PairedDeBruijnGraph._break_read_into_k_minus_one_mers(
                 PairedDeBruijnGraph.KMER_LEN, cur_read_pair)
 
-            for prefix_paired_paired, suffix_paired_paired in AbstractDeBruijnGraph._pairwise(paired_k_minus_one_mers):
-                # Each kmer_pair generates two kmers, each of which we'll count for coverage.
-                kmer_counts[(prefix_paired_paired[0], suffix_paired_paired[0])] += 1
-                kmer_counts[(prefix_paired_paired[1], suffix_paired_paired[1])] += 1
+            # Would a polynomial rolling hash be significantly faster?
+            # Count k-1mers instead of kmer of form (k-1, k-1) to save space.
+            # The filter principle stays the same to remove errors.
+            for paired_k_minus_one_mer in paired_k_minus_one_mers:
+                kmer_counts_dict[paired_k_minus_one_mer[0]] += 1
+                kmer_counts_dict[paired_k_minus_one_mer[1]] += 1
+
+        return kmer_counts_dict
+
+    @staticmethod
+    def _put_kmer_counts_into_countmin_sketch(kmer_counts_dict) -> CountMinSketch:
+        # Read the dictionary into a compressed data structure to allow deleting kmer_counts_dict
+        NUM_ROWS = 9
+        kmer_counts = CountMinSketch(NUM_ROWS, PairedDeBruijnGraph.KMER_LEN)
+        for kmer, count in kmer_counts_dict.items():
+            kmer_counts.update(kmer, count)
         return kmer_counts
 
     @staticmethod
@@ -428,7 +578,7 @@ class PairedDeBruijnGraph(AbstractDeBruijnGraph):
         ''' Paired output format for ('ACTGAC', 'TCGATC'), k=4: 
             [('ACT', 'TCG'), ('CTG', 'CGA'), ('TGA', 'GAT'), ('GAC', 'ATC')]
         '''
-        return [(sys.intern(read[0][i:i+k-1]), sys.intern(read[1][i:i+k-1])) for i in range(len(read[0])-(k-2))]
+        return [(read[0][i:i+k-1], read[1][i:i+k-1]) for i in range(len(read[0])-(k-2))]
 
 
 class DebugPairedDeBruijnGraph(PairedDeBruijnGraph):
@@ -474,21 +624,39 @@ class DebugPairedDeBruijnGraph(PairedDeBruijnGraph):
         if self.print_runtime:
             print(
                 "\n--- STARTING TO COUNT KMERS AT T = {:.2f} ---".format(time.time()-self.start_time))
-        kmer_counts = super()._count_kmers(reads)
+        kmer_counts_dict = super()._count_kmers(reads)
         if self.print_runtime:
             print("FINISHED COUNTING KMERS AT T = {:.2f}".format(time.time()-self.start_time))
         if self.print_syssizeof:
             string_mem = 0
-            container_mem = sys.getsizeof(kmer_counts)
-            print("SIZE OF COUNTS CONTAINER WITHOUT TUPLES: {:,}".format(container_mem))
-            for pair in kmer_counts.items():
-                container_mem += sys.getsizeof(pair)
-                string_mem += sys.getsizeof(pair[0])
-                string_mem += sys.getsizeof(pair[1])
+            container_mem = sys.getsizeof(kmer_counts_dict)
+            for k_minus_one_mer in kmer_counts_dict.items():
+                string_mem += sys.getsizeof(k_minus_one_mer)
             print("SIZE OF COUNTS CONTAINER: {:,}".format(container_mem))
             print("SIZE OF STRINGS IN COUNTS: {:,}".format(string_mem))
         if self.print_snapshot:
             print_memory_snapshot("AFTER COUNTING KMERS")
+        return kmer_counts_dict
+
+    def _put_kmer_counts_into_countmin_sketch(self, kmer_counts_dict):
+        if self.print_runtime:
+            print(
+                "\n--- STARTING TO MAKE COUNTMIN SKETCH AT T = {:.2f} ---".format(time.time()-self.start_time))
+        
+        # Read the dictionary into a compressed data structure
+        NUM_ROWS = 8
+        kmer_counts = CountMinSketch(NUM_ROWS, PairedDeBruijnGraph.KMER_LEN)
+        for i, (kmer, count) in enumerate(kmer_counts_dict.items()):
+            if self.print_runtime and i % 50000 == 0:
+                print("Processed {0} kmers by time T={1:.2f}".format(i, time.time()-self.start_time))
+            kmer_counts.update(kmer, count)
+
+        if self.print_runtime:
+            print("FINISHED MAKING COUNTMIN SKETCH AT T = {:.2f}".format(time.time()-self.start_time))
+        if self.print_syssizeof:
+            print("SIZE OF COUNTMIN SKETCH: {:,}".format(sys.getsizeof(kmer_counts)))
+        if self.print_snapshot:
+            print_memory_snapshot("AFTER MAKING COUNTMIN")
         return kmer_counts
 
 
@@ -599,7 +767,7 @@ def main():
 
 if __name__ == "__main__":
     sys.setswitchinterval(10000)
-    # main()
-    profile_assembler(print_runtime=True, print_syssizeof=True, print_snapshot=False)
+    main()
+    # profile_assembler(print_runtime=True, print_syssizeof=True, print_snapshot=False)
     # cProfile.run('main()')
-    #cProfile.run('profile_assembler(print_runtime=True, print_syssizeof=False, print_snapshot=False)')
+    # cProfile.run('profile_assembler(print_runtime=True, print_syssizeof=True, print_snapshot=False)')
