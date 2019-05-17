@@ -66,16 +66,23 @@ import tracemalloc
 
 
 class CountMinSketch:
+    # 20 primes around 6*10**7
+    primes = [59999879, 59999881, 59999887, 59999917, 59999957, 59999971, 59999981, 59999983, 59999993, 59999999,
+              60000011, 60000013, 60000023, 60000047, 60000049, 60000067, 60000071, 60000091, 60000103, 60000113]
+
+    # 20 primes around 10**7
+    # primes = [9999889, 9999901, 9999907, 9999929, 9999931, 9999937, 9999943, 9999971, 9999973, 9999991,
+    #           10000019, 10000079, 10000103, 10000121, 10000139, 10000141, 10000169, 10000189, 10000223, 10000229]
+
+    # 20 primes around 5*10**6
+    # primes = [4999871,4999879,4999889,4999913,4999933,
+    #           4999949,4999957,4999961,4999963,4999999,
+    #           5000011,5000077,5000081,5000087,5000101,
+    #           5000111,5000113,5000153,5000161,5000167]
 
     # 20 primes around 10**6
     # primes = [999863, 999883, 999907, 999917, 999931, 999953, 999959, 999961, 999979, 999983,
     #           1000003, 1000033, 1000037, 1000039, 1000081, 1000099, 1000117, 1000121, 1000133, 1000151]
-
-    # 20 primes around 5*10**6
-    primes = [4999871,4999879,4999889,4999913,4999933,
-              4999949,4999957,4999961,4999963,4999999,
-              5000011,5000077,5000081,5000087,5000101,
-              5000111,5000113,5000153,5000161,5000167]
 
     # 17 Primes around 5*10**5
     # primes = [500009, 500029, 500041, 500057, 500069, 500083,
@@ -179,9 +186,10 @@ class CountMinSketch:
         total_mem += sys.getsizeof(self.num_rows)
         total_mem += sys.getsizeof(self.hash_values)
         for row in self.hash_values:
-            total_mem += sys.getsizeof(row)
-            for member in row:
-                total_mem += sys.getsizeof(member)
+            total_mem += row.buffer_info()[1] * row.itemsize
+            # total_mem += sys.getsizeof(row)
+            # for member in row:
+            #     total_mem += sys.getsizeof(member)
         self.total_mem = total_mem
         self.total_mem += sys.getsizeof(self.total_mem)
         return total_mem
@@ -289,8 +297,8 @@ class DeBruijnGraph(AbstractDeBruijnGraph):
         or all the k-1mers in a separate structure.
     '''
 
-    KMER_LEN = 29
-    HAMMING_DIST = 3 #* 41
+    KMER_LEN = 33 #29
+    HAMMING_DIST = 3  # * 41
     # This is 2*DELTA where DELTA is the maximum disance from the true mean D,
     # the distance between paried kmers.
     ALLOWED_PAIRED_DIST_ERROR = 6
@@ -357,18 +365,18 @@ class DeBruijnGraph(AbstractDeBruijnGraph):
                 # if kmer_counts[prefix] > DeBruijnGraph.HAMMING_DIST and \
                 #     kmer_counts[suffix] > DeBruijnGraph.HAMMING_DIST:
 
+                # Check for novel edges
+                if prefix in self.nodes and suffix in self.nodes:
+                    if suffix in self.nodes[prefix].edges:
+                        continue
+
                 if kmer_counts.estimate(prefix) > DeBruijnGraph.HAMMING_DIST and \
                         kmer_counts.estimate(suffix) > DeBruijnGraph.HAMMING_DIST:
 
-                    # Check for novel edges
-                    if prefix in self.nodes and suffix in self.nodes:
-                        if suffix in self.nodes[prefix].edges:
-                            continue
-                    else:
-                        if prefix not in self.nodes:
-                            self.nodes[sys.intern(prefix)] = Node(sys.intern(prefix))
-                        if suffix not in self.nodes:
-                            self.nodes[sys.intern(suffix)] = Node(sys.intern(suffix))
+                    if prefix not in self.nodes:
+                        self.nodes[sys.intern(prefix)] = Node(sys.intern(prefix))
+                    if suffix not in self.nodes:
+                        self.nodes[sys.intern(suffix)] = Node(sys.intern(suffix))
 
                     self.nodes[prefix].append_edge(suffix)
                     self.nodes[suffix].num_edges_in += 1
@@ -380,7 +388,7 @@ class DeBruijnGraph(AbstractDeBruijnGraph):
                 node.was_branching = True
 
     @staticmethod
-    def _count_kmers(reads):
+    def _count_kmers(reads) -> defaultdict:
         kmer_counts = defaultdict(int)
         for cur_read in reads:
             k_minus_one_mers = DeBruijnGraph._break_read_into_k_minus_one_mers(
@@ -400,7 +408,7 @@ class DeBruijnGraph(AbstractDeBruijnGraph):
         return kmer_counts
 
     @staticmethod
-    def _break_read_into_k_minus_one_mers(k, read, paired=False):
+    def _break_read_into_k_minus_one_mers(k, read, paired=False) -> list:
         ''' Non-paired output format for 'ACTGAC', k=4: ['ACT', 'CTG', 'TGA', 'GAC'] '''
         return [read[i:i+k-1] for i in range(len(read)-(k-2))]
 
@@ -479,7 +487,7 @@ class PairedDeBruijnGraph(AbstractDeBruijnGraph):
     def _build_graph(self, kmer_counts, reads):
 
         for i, read in enumerate(reads):
-            # if i % 3000 == 0:
+            # if i % 50000 == 0:
             #     print("Processing read no.", i)
             read_pairs = self._break_read_into_k_minus_one_mers(self.KMER_LEN, read)
             for prefix_paired, suffix_paired in AbstractDeBruijnGraph._pairwise(read_pairs):
