@@ -61,6 +61,10 @@ import cProfile
     (7) Run a max circulation flow through the network to infer multiplicity. 
             O(V[E**2]) doable for ~300 contigs, even 10**3 contigs.
             O(VE) algorithm exists if runtime becomes a concern.
+
+    # TO FIX: Memory counting in DebugGraph to reflect superclass type...
+        __sizeof__ for superclass?
+    # Insert > after each statement.
 '''
 
 """ ----- STORAGE STRUCTURES ----- """
@@ -117,6 +121,10 @@ class CountMinSketch:
         # This gives an expected value of 0 for 'noise', which we rely on in this structure.
         signs = [-1, 1]
         return signs[hash_val % self.sign_mod_vals[row] % 2]
+    
+    def __getitem__(self, key):
+        # To allow working similar to dict
+        return self.estimate(key)
 
     @staticmethod
     @lru_cache(maxsize=512)
@@ -296,12 +304,12 @@ class DeBruijnGraph(AbstractDeBruijnGraph):
         or all the k-1mers in a separate structure.
     '''
 
-    # 33 for N. Delto, 27? for E. Coli
-    KMER_LEN = 25
+    # 33 for N. Delto, 25? for E. Coli
+    KMER_LEN = 33
     HAMMING_DIST = 3
     ALLOWED_PAIRED_DIST_ERROR = 6
 
-    def __init__(self, reads):
+    def __init__(self, reads : list):
         self.num_edges = 0
         # Indexed by data/prefix_paired/suffix_paired.
         self.nodes = dict()
@@ -350,7 +358,7 @@ class DeBruijnGraph(AbstractDeBruijnGraph):
 
         return "".join(contig_pieces)
 
-    def _build_graph(self, kmer_counts: defaultdict, reads):
+    def _build_graph(self, kmer_counts, reads : list):
         ''' Builds the path constructor with coverage considerations
             i.e. Filter out edges with coverage under our set Hamming distance
         '''
@@ -359,13 +367,13 @@ class DeBruijnGraph(AbstractDeBruijnGraph):
             #     print("Processing read no.", i)
             k_minus_one_mers = self._break_read_into_k_minus_one_mers(DeBruijnGraph.KMER_LEN, read)
             for prefix, suffix in AbstractDeBruijnGraph._pairwise(k_minus_one_mers):
+                # Check for novel edges
+                if prefix in self.nodes and suffix in self.nodes:
+                    if suffix in self.nodes[prefix].edges:
+                        continue
+                
                 if kmer_counts[prefix] > DeBruijnGraph.HAMMING_DIST and \
                         kmer_counts[suffix] > DeBruijnGraph.HAMMING_DIST:
-
-                    # Check for novel edges
-                    if prefix in self.nodes and suffix in self.nodes:
-                        if suffix in self.nodes[prefix].edges:
-                            continue
 
                     if prefix not in self.nodes:
                         self.nodes[prefix] = Node(sys.intern(prefix))
@@ -382,7 +390,7 @@ class DeBruijnGraph(AbstractDeBruijnGraph):
                 node.was_branching = True
 
     @staticmethod
-    def _count_kmers(reads) -> defaultdict:
+    def _count_kmers(reads : list) -> defaultdict:
         kmer_counts = defaultdict(int)
         for cur_read in reads:
             k_minus_one_mers = DeBruijnGraph._break_read_into_k_minus_one_mers(
@@ -393,7 +401,7 @@ class DeBruijnGraph(AbstractDeBruijnGraph):
         return kmer_counts
 
     @staticmethod
-    def _break_read_into_k_minus_one_mers(k, read, paired=False) -> list:
+    def _break_read_into_k_minus_one_mers(k : int, read : str, paired=False) -> list:
         ''' Non-paired output format for 'ACTGAC', k=4: ['ACT', 'CTG', 'TGA', 'GAC'] '''
         return [read[i:i+k-1] for i in range(len(read)-(k-2))]
 
@@ -408,44 +416,12 @@ class CMSDeBruijnGraph(DeBruijnGraph):
         del kmer_counts_dict
         self._build_graph(kmer_counts_sketch, reads)
 
-    def _build_graph(self, kmer_counts: CountMinSketch, reads: list):
-        ''' Builds the path constructor with coverage considerations
-            i.e. Filter out edges with coverage under our set Hamming distance
-        '''
-        for i, read in enumerate(reads):
-            # if i % 50000 == 0:
-            #     print("Processing read no.", i)
-            k_minus_one_mers = self._break_read_into_k_minus_one_mers(DeBruijnGraph.KMER_LEN, read)
-            for prefix, suffix in AbstractDeBruijnGraph._pairwise(k_minus_one_mers):
-
-                # Check for novel edges
-                if prefix in self.nodes and suffix in self.nodes:
-                    if suffix in self.nodes[prefix].edges:
-                        continue
-
-                if kmer_counts.estimate(prefix) > DeBruijnGraph.HAMMING_DIST and \
-                        kmer_counts.estimate(suffix) > DeBruijnGraph.HAMMING_DIST:
-
-                        if prefix not in self.nodes:
-                            self.nodes[prefix] = Node(sys.intern(prefix))
-                        if suffix not in self.nodes:
-                            self.nodes[suffix] = Node(sys.intern(suffix))
-
-                        self.nodes[prefix].append_edge(sys.intern(suffix))
-                        self.nodes[suffix].num_edges_in += 1
-                        self.num_edges += 1
-
-            # Mark was_branching nodes before graph gets consumed.
-            for _, node in self.nodes.items():
-                if node.outdegree > 1 or node.indegree > 1:
-                    node.was_branching = True
-
     @staticmethod
-    def _make_sketch(kmer_counts: defaultdict) -> CountMinSketch:
+    def _make_sketch(kmer_counts_dict: defaultdict) -> CountMinSketch:
         # Read the dictionary into a compressed data structure to allow deleting kmer_counts_dict
-        NUM_ROWS = 8
+        NUM_ROWS = 10
         kmer_counts = CountMinSketch(NUM_ROWS)
-        for kmer, count in kmer_counts.items():
+        for kmer, count in kmer_counts_dict.items():
             kmer_counts.update(kmer, count)
         return kmer_counts
 
@@ -463,7 +439,7 @@ class PairedDeBruijnGraph(AbstractDeBruijnGraph):
     HAMMING_DIST = 4
     ALLOWED_PAIRED_DIST_ERROR = 6
 
-    def __init__(self, reads, d):
+    def __init__(self, reads : list, d : int):
         self.num_edges = 0
         # Indexed by (data, paired_data)/(prefix, paired_prefix)/(suffix, paired_suffix)
         self.nodes = defaultdict(dict)
@@ -518,7 +494,7 @@ class PairedDeBruijnGraph(AbstractDeBruijnGraph):
 
         return "".join(contig_pieces)
 
-    def _build_graph(self, kmer_counts, reads):
+    def _build_graph(self, kmer_counts, reads : list):
 
         for i, read in enumerate(reads):
             # if i % 50000 == 0:
@@ -587,7 +563,7 @@ class PairedDeBruijnGraph(AbstractDeBruijnGraph):
 
     @staticmethod
     @lru_cache(maxsize=512)
-    def _find_longest_overlap_brute(pattern, text) -> int:
+    def _find_longest_overlap_brute(pattern : str, text : str) -> int:
         for start_text_pos in range(len(text) - PairedDeBruijnGraph.ALLOWED_PAIRED_DIST_ERROR):
             len_possible_overlap = min(len(text) - start_text_pos, len(pattern))
             for pattern_pos in range(len_possible_overlap):
@@ -599,7 +575,7 @@ class PairedDeBruijnGraph(AbstractDeBruijnGraph):
         return 0
 
     @staticmethod
-    def _count_kmers(reads) -> defaultdict:
+    def _count_kmers(reads : list) -> defaultdict:
         ''' Generates a structure to check whether a kmer appears frequently enough.
             Does not save the k-1mers to trade runtime for space.
             Currently uses a dict but can switch over a count-min sketch if space is a concern.
@@ -619,7 +595,7 @@ class PairedDeBruijnGraph(AbstractDeBruijnGraph):
         return kmer_counts_dict
 
     @staticmethod
-    def _break_read_into_k_minus_one_mers(k, read) -> list:
+    def _break_read_into_k_minus_one_mers(k : int, read : str) -> list:
         ''' Paired output format for ('ACTGAC', 'TCGATC'), k=4: 
             [('ACT', 'TCG'), ('CTG', 'CGA'), ('TGA', 'GAT'), ('GAC', 'ATC')]
         '''
@@ -637,77 +613,12 @@ class CMSPairedDeBruijnGraph(PairedDeBruijnGraph):
         del kmer_counts_dict
         self._build_graph(kmer_counts_sketch, reads)
 
-    def _build_graph(self, kmer_counts: CountMinSketch, reads: list):
-        for i, read in enumerate(reads):
-            # if i % 50000 == 0:
-            #     print("Processing read no.", i)
-            read_pairs = self._break_read_into_k_minus_one_mers(self.KMER_LEN, read)
-            for prefix_paired, suffix_paired in self._pairwise(read_pairs):
-                # Indiscriminately filters any edge that has an erroneous k-1mer
-
-                    # Potential savings: use k-mers then slice,
-                    # since slicing is faster than estimating.
-                    # Estimates twice less.
-
-                    est1 = kmer_counts.estimate(prefix_paired[0])
-                    if est1 <= self.HAMMING_DIST:
-                        continue
-                    est2 = kmer_counts.estimate(prefix_paired[1])
-                    if est2 <= self.HAMMING_DIST:
-                        continue
-                    est3 = kmer_counts.estimate(suffix_paired[0])
-                    if est3 <= self.HAMMING_DIST:
-                        continue
-                    est4 = kmer_counts.estimate(suffix_paired[1])
-                    if est4 <= self.HAMMING_DIST:
-                        continue
-
-                    # if i % 1000 == 0:
-                    #     print("EST", est1, est2, est3, est4)
-
-                    # Check whether the each node already exists, accounting for inexact distance between paired reads.
-                    # self._find_matching_node() will set the node variables to existing  nodes if they exist.
-                    prefix_found, prefix_node = self._find_matching_node(prefix_paired)
-                    suffix_found, suffix_node = self._find_matching_node(suffix_paired)
-
-                    # Create and add any nodes that don't already exist.
-                    # The check for not found ensures we do not overwrite existing matching nodes with new nodes.
-                    if not prefix_found:
-                        prefix_node = PairedNode(
-                            data=sys.intern(prefix_paired[0]), paired_data=sys.intern(prefix_paired[1]))
-                        self.nodes[prefix_paired[0]][prefix_paired[1]] = prefix_node
-                    if not suffix_found:
-                        suffix_node = PairedNode(
-                            data=sys.intern(suffix_paired[0]), paired_data=sys.intern(suffix_paired[1]))
-                        self.nodes[suffix_paired[0]][suffix_paired[1]] = suffix_node
-
-                    # Case: Either not node found, therefore edge cannot already exist.
-                    if not (prefix_found and suffix_found):
-                        prefix_node.append_edge((suffix_node.data, suffix_node.paired_data))
-                        suffix_node.num_edges_in += 1
-                        self.num_edges += 1
-                    # Case: Both nodes found but edge between them doesn't exist.
-                    elif (suffix_node.data, suffix_node.paired_data) not in prefix_node.edges:
-                        prefix_node.append_edge((suffix_node.data, suffix_node.paired_data))
-                        suffix_node.num_edges_in += 1
-                        self.num_edges += 1
-                    # Case: Both nodes found, and an edge between them exists. Don't add a new edge.
-                    # Ensures simple graph created. Self-edges not accounted for.
-                    else:
-                        continue
-
-        # Mark was_branching nodes before graph gets consumed.
-        for _, nodes in self.nodes.items():
-            for _, node in nodes.items():
-                if node.outdegree > 1 or node.indegree > 1:
-                    node.was_branching = True
-
     @staticmethod
-    def _make_sketch(kmer_counts: defaultdict) -> CountMinSketch:
+    def _make_sketch(kmer_counts_dict: defaultdict) -> CountMinSketch:
         # Read the dictionary into a compressed data structure to allow deleting kmer_counts_dict
         NUM_ROWS = 8
         kmer_counts = CountMinSketch(NUM_ROWS)
-        for kmer, count in kmer_counts.items():
+        for kmer, count in kmer_counts_dict.items():
             kmer_counts.update(kmer, count)
         return kmer_counts
 
@@ -765,15 +676,15 @@ class DebugGraph:
             print("SIZE OF STRINGS IN COUNTS: {:,}".format(string_mem))
         return kmer_counts_dict
 
-    def _put_kmer_counts_into_countmin_sketch(self, kmer_counts: defaultdict) -> CountMinSketch:
+    def _make_sketch(self, kmer_counts_dict: defaultdict) -> CountMinSketch:
         if self.print_runtime:
             print(
                 "\n--- STARTING TO MAKE COUNTMIN SKETCH AT T = {:.2f} ---".format(time.time()-self.start_time))
 
         # Read the dictionary into a compressed data structure
-        NUM_ROWS = 8
+        NUM_ROWS = 10
         kmer_counts = CountMinSketch(NUM_ROWS)
-        for i, (kmer, count) in enumerate(kmer_counts.items()):
+        for i, (kmer, count) in enumerate(kmer_counts_dict.items()):
             if self.print_runtime and i % 50000 == 0:
                 print("Processed {0} kmers by time T={1:.2f}".format(
                     i, time.time()-self.start_time))
@@ -880,7 +791,7 @@ def profile_assembler(print_runtime=False, print_syssizeof=False):
         graph = DebugPairedDeBruijnGraph(reads=reads, d=d, print_runtime=print_runtime,
                                          start_time=start_time, print_syssizeof=print_syssizeof)
     else:
-        graph = DebugDeBruijnGraph(reads=reads, print_runtime=print_runtime,
+        graph = DebugCMSDeBruijnGraph(reads=reads, print_runtime=print_runtime,
                                    start_time=start_time, print_syssizeof=print_syssizeof)
     contigs = graph.enumerate_contigs()
     DebugIOHandler.print_FASTA(contigs)
