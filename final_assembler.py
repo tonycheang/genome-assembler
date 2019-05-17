@@ -12,7 +12,6 @@ from math import log
 import time
 
 import cProfile
-import tracemalloc
 
 """ Implementing an Assembler
 
@@ -89,17 +88,6 @@ class CountMinSketch:
     #           500107, 500111, 500113, 500119, 500153, 500167,
     #           500173, 500177, 500179, 500197, 500209, 500231,
     #           500233, 500237]
-
-    # 90 Primes around 4*10**4
-    # primes = [44543, 44549, 44563, 44579, 44587, 44617, 44621, 44623, 44633, 44641,
-    #           44647, 44651, 44657, 44683, 44687, 44699, 44701, 44711, 44729, 44741,
-    #           44753, 44771, 44773, 44777, 44789, 44797, 44809, 44819, 44839, 44843,
-    #           44851, 44867, 44879, 44887, 44893, 44909, 44917, 44927, 44939, 44953,
-    #           44959, 44963, 44971, 44983, 44987, 45007, 45013, 45053, 45061, 45077,
-    #           45083, 45119, 45121, 45127, 45131, 45137, 45139, 45161, 45179, 45181,
-    #           45191, 45197, 45233, 45247, 45259, 45263, 45281, 45289, 45293, 45307,
-    #           45317, 45319, 45329, 45337, 45341, 45343, 45361, 45377, 45389, 45403,
-    #           45413, 45427, 45433, 45439, 45481, 45491, 45497, 45503, 45523, 45533]
 
     def __init__(self, num_rows):
         assert num_rows < len(
@@ -232,8 +220,14 @@ class Node:
         total_mem = super().__sizeof__()
         total_mem += sys.getsizeof(self.data)
         total_mem += sys.getsizeof(self.edges)
-        for _, edge in self.edges:
-            total_mem += sys.getsizeof(edge)
+        # print(self.edges)
+        if self.edges:
+            if isinstance(next(iter(self.edges)), tuple):
+                for _, edge in self.edges:
+                    total_mem += sys.getsizeof(edge)
+            elif isinstance(next(iter(self.edges)), str):
+                for edge in self.edges:
+                    total_mem += sys.getsizeof(edge)
         total_mem += sys.getsizeof(self.was_branching)
         total_mem += sys.getsizeof(self.num_edges_in)
         self.total_mem = total_mem
@@ -297,7 +291,8 @@ class DeBruijnGraph(AbstractDeBruijnGraph):
         or all the k-1mers in a separate structure.
     '''
 
-    KMER_LEN = 33 #29
+    # 33 for N. Delto, ?? for E. Coli
+    KMER_LEN = 33
     HAMMING_DIST = 3  # * 41
     # This is 2*DELTA where DELTA is the maximum disance from the true mean D,
     # the distance between paried kmers.
@@ -307,11 +302,11 @@ class DeBruijnGraph(AbstractDeBruijnGraph):
         self.num_edges = 0
         # Indexed by data/prefix_paired/suffix_paired.
         self.nodes = dict()
-        kmer_counts_dict = DeBruijnGraph._count_kmers(reads)
-        kmer_counts_sketch = self._put_kmer_counts_into_countmin_sketch(kmer_counts_dict)
-        del kmer_counts_dict
-        self._build_graph(kmer_counts_sketch, reads)
-        # self._build_graph(kmer_counts_dict, reads)
+        kmer_counts_dict = self._count_kmers(reads)
+        # kmer_counts_sketch = self._put_kmer_counts_into_countmin_sketch(kmer_counts_dict)
+        # del kmer_counts_dict
+        # self._build_graph(kmer_counts_sketch, reads)
+        self._build_graph(kmer_counts_dict, reads)
 
     def enumerate_contigs(self) -> list:
         contigs = list()
@@ -362,23 +357,23 @@ class DeBruijnGraph(AbstractDeBruijnGraph):
         for read in reads:
             k_minus_one_mers = self._break_read_into_k_minus_one_mers(DeBruijnGraph.KMER_LEN, read)
             for prefix, suffix in AbstractDeBruijnGraph._pairwise(k_minus_one_mers):
-                # if kmer_counts[prefix] > DeBruijnGraph.HAMMING_DIST and \
-                #     kmer_counts[suffix] > DeBruijnGraph.HAMMING_DIST:
+                if kmer_counts[prefix] > DeBruijnGraph.HAMMING_DIST and \
+                        kmer_counts[suffix] > DeBruijnGraph.HAMMING_DIST:
 
-                # Check for novel edges
-                if prefix in self.nodes and suffix in self.nodes:
-                    if suffix in self.nodes[prefix].edges:
-                        continue
+                    # Check for novel edges
+                    if prefix in self.nodes and suffix in self.nodes:
+                        if suffix in self.nodes[prefix].edges:
+                            continue
 
-                if kmer_counts.estimate(prefix) > DeBruijnGraph.HAMMING_DIST and \
-                        kmer_counts.estimate(suffix) > DeBruijnGraph.HAMMING_DIST:
+                # if kmer_counts.estimate(prefix) > DeBruijnGraph.HAMMING_DIST and \
+                #         kmer_counts.estimate(suffix) > DeBruijnGraph.HAMMING_DIST:
 
                     if prefix not in self.nodes:
-                        self.nodes[sys.intern(prefix)] = Node(sys.intern(prefix))
+                        self.nodes[prefix] = Node(sys.intern(prefix))
                     if suffix not in self.nodes:
-                        self.nodes[sys.intern(suffix)] = Node(sys.intern(suffix))
+                        self.nodes[suffix] = Node(sys.intern(suffix))
 
-                    self.nodes[prefix].append_edge(suffix)
+                    self.nodes[prefix].append_edge(sys.intern(suffix))
                     self.nodes[suffix].num_edges_in += 1
                     self.num_edges += 1
 
@@ -413,6 +408,76 @@ class DeBruijnGraph(AbstractDeBruijnGraph):
         return [read[i:i+k-1] for i in range(len(read)-(k-2))]
 
 
+class DebugDeBruijnGraph(DeBruijnGraph):
+    def __init__(self, reads, print_syssizeof=False, print_runtime=False, start_time=0):
+        self.print_syssizeof = print_syssizeof
+        self.print_runtime = print_runtime
+        self.start_time = start_time
+        super().__init__(reads)
+
+    def enumerate_contigs(self):
+        if self.print_runtime:
+            print(
+                "\n--- STARTING TO ENUMERATE CONTIGS AT T = {:.2f} ---".format(time.time()-self.start_time))
+        contigs = super().enumerate_contigs()
+        if self.print_runtime:
+            print(
+                "FINISHED ENUMERATING CONTIGS AT T = {:.2f} ---".format(time.time()-self.start_time))
+        return contigs
+
+    def _build_graph(self, kmer_counts, reads):
+        if self.print_runtime:
+            print(
+                "\n--- STARTING TO BUILD GRAPH AT T = {:.2f} ---".format(time.time()-self.start_time))
+        super()._build_graph(kmer_counts, reads)
+        if self.print_runtime:
+            print("FINISHED BUILDING GRAPH AT T = {:.2f}".format(time.time()-self.start_time))
+        if self.print_syssizeof:
+            node_mem = 0
+            container_mem = sys.getsizeof(self.nodes)
+            for _, node in self.nodes.items():
+                node_mem += sys.getsizeof(node)
+            print("SIZE OF GRAPH CONTAINER: {:,}".format(container_mem))
+            print("SIZE OF ALL NODES: {:,}".format(node_mem))
+
+    def _count_kmers(self, reads):
+        if self.print_runtime:
+            print(
+                "\n--- STARTING TO COUNT KMERS AT T = {:.2f} ---".format(time.time()-self.start_time))
+        kmer_counts_dict = super()._count_kmers(reads)
+        if self.print_runtime:
+            print("FINISHED COUNTING KMERS AT T = {:.2f}".format(time.time()-self.start_time))
+        if self.print_syssizeof:
+            string_mem = 0
+            container_mem = sys.getsizeof(kmer_counts_dict)
+            for k_minus_one_mer in kmer_counts_dict.items():
+                string_mem += sys.getsizeof(k_minus_one_mer)
+            print("SIZE OF COUNTS CONTAINER: {:,}".format(container_mem))
+            print("SIZE OF STRINGS IN COUNTS: {:,}".format(string_mem))
+        return kmer_counts_dict
+
+    def _put_kmer_counts_into_countmin_sketch(self, kmer_counts_dict):
+        if self.print_runtime:
+            print(
+                "\n--- STARTING TO MAKE COUNTMIN SKETCH AT T = {:.2f} ---".format(time.time()-self.start_time))
+
+        # Read the dictionary into a compressed data structure
+        NUM_ROWS = 8
+        kmer_counts = CountMinSketch(NUM_ROWS)
+        for i, (kmer, count) in enumerate(kmer_counts_dict.items()):
+            if self.print_runtime and i % 50000 == 0:
+                print("Processed {0} kmers by time T={1:.2f}".format(
+                    i, time.time()-self.start_time))
+            kmer_counts.update(kmer, count)
+
+        if self.print_runtime:
+            print("FINISHED MAKING COUNTMIN SKETCH AT T = {:.2f}".format(
+                time.time()-self.start_time))
+        if self.print_syssizeof:
+            print("SIZE OF COUNTMIN SKETCH: {:,}".format(sys.getsizeof(kmer_counts)))
+        return kmer_counts
+
+
 class PairedDeBruijnGraph(AbstractDeBruijnGraph):
     ''' Implementation relies on idea of dual-key with paired-reads.
         That is, self.nodes is a defaultdict of dicts; two keys are necessary to identify a node.
@@ -421,7 +486,8 @@ class PairedDeBruijnGraph(AbstractDeBruijnGraph):
         for key comparison.
     '''
 
-    KMER_LEN = 27
+    # 28 for N. Delto, ?? for E. Coli
+    KMER_LEN = 28
     HAMMING_DIST = 4
     # This is 2*DELTA where DELTA is the maximum disance from the true mean D, the distance between paried kmers.
     ALLOWED_PAIRED_DIST_ERROR = 6
@@ -432,10 +498,10 @@ class PairedDeBruijnGraph(AbstractDeBruijnGraph):
         self.nodes = defaultdict(dict)
         self.dist = d
         kmer_counts_dict = self._count_kmers(reads)
-        kmer_counts_sketch = self._put_kmer_counts_into_countmin_sketch(kmer_counts_dict)
-        del kmer_counts_dict
-        self._build_graph(kmer_counts_sketch, reads)
-        # self._build_graph(kmer_counts_dict, reads)
+        # kmer_counts_sketch = self._put_kmer_counts_into_countmin_sketch(kmer_counts_dict)
+        # del kmer_counts_dict
+        # self._build_graph(kmer_counts_sketch, reads)
+        self._build_graph(kmer_counts_dict, reads)
 
     def enumerate_contigs(self) -> list:
         contigs = list()
@@ -492,23 +558,23 @@ class PairedDeBruijnGraph(AbstractDeBruijnGraph):
             read_pairs = self._break_read_into_k_minus_one_mers(self.KMER_LEN, read)
             for prefix_paired, suffix_paired in AbstractDeBruijnGraph._pairwise(read_pairs):
                 # Indiscriminately filters any edge that has an erroneous k-1mer
-                # if kmer_counts[prefix_paired[0]] > PairedDeBruijnGraph.HAMMING_DIST and \
-                #         kmer_counts[suffix_paired[0]] > PairedDeBruijnGraph.HAMMING_DIST and \
-                #         kmer_counts[prefix_paired[1]] > PairedDeBruijnGraph.HAMMING_DIST and \
-                #         kmer_counts[suffix_paired[1]] > PairedDeBruijnGraph.HAMMING_DIST:
+                if kmer_counts[prefix_paired[0]] > PairedDeBruijnGraph.HAMMING_DIST and \
+                        kmer_counts[suffix_paired[0]] > PairedDeBruijnGraph.HAMMING_DIST and \
+                        kmer_counts[prefix_paired[1]] > PairedDeBruijnGraph.HAMMING_DIST and \
+                        kmer_counts[suffix_paired[1]] > PairedDeBruijnGraph.HAMMING_DIST:
 
-                    est1 = kmer_counts.estimate(prefix_paired[0])
-                    if est1 <= PairedDeBruijnGraph.HAMMING_DIST:
-                        continue
-                    est2 = kmer_counts.estimate(prefix_paired[1])
-                    if est2 <= PairedDeBruijnGraph.HAMMING_DIST:
-                        continue
-                    est3 = kmer_counts.estimate(suffix_paired[0])
-                    if est3 <= PairedDeBruijnGraph.HAMMING_DIST:
-                        continue
-                    est4 = kmer_counts.estimate(suffix_paired[1])
-                    if est4 <= PairedDeBruijnGraph.HAMMING_DIST:
-                        continue
+                    # est1 = kmer_counts.estimate(prefix_paired[0])
+                    # if est1 <= PairedDeBruijnGraph.HAMMING_DIST:
+                    #     continue
+                    # est2 = kmer_counts.estimate(prefix_paired[1])
+                    # if est2 <= PairedDeBruijnGraph.HAMMING_DIST:
+                    #     continue
+                    # est3 = kmer_counts.estimate(suffix_paired[0])
+                    # if est3 <= PairedDeBruijnGraph.HAMMING_DIST:
+                    #     continue
+                    # est4 = kmer_counts.estimate(suffix_paired[1])
+                    # if est4 <= PairedDeBruijnGraph.HAMMING_DIST:
+                    #     continue
 
                     # if i % 1000 == 0:
                     #     print("EST", est1, est2, est3, est4)
@@ -642,11 +708,11 @@ class DebugPairedDeBruijnGraph(PairedDeBruijnGraph):
             print_memory_snapshot("AFTER ENUMERATE CONTIGS")
         return contigs
 
-    def _build_graph(self, kmer_counts, broken_read_pairs):
+    def _build_graph(self, kmer_counts, reads):
         if self.print_runtime:
             print(
                 "\n--- STARTING TO BUILD GRAPH AT T = {:.2f} ---".format(time.time()-self.start_time))
-        super()._build_graph(kmer_counts, broken_read_pairs)
+        super()._build_graph(kmer_counts, reads)
         if self.print_runtime:
             print("FINISHED BUILDING GRAPH AT T = {:.2f}".format(time.time()-self.start_time))
         if self.print_syssizeof:
@@ -714,22 +780,28 @@ class IOHandler:
         reads = list()
         d = 0
 
+        num_bases = 0
+
         # Check for read-pair vs non-paired input format
         first_line = sys.stdin.readline().strip().split('|')
         if len(first_line) > 1:
             read1, read2, d = first_line
+            num_bases += len(read1) + len(read2)
             reads.append((read1, read2))
             paired = True
             for _ in range(n-1):
                 read1, read2, d = sys.stdin.readline().strip().split('|')
                 reads.append((read1, read2))
+                num_bases += len(read1) + len(read2)
         else:
             reads.append(first_line[0])
+            num_bases += len(first_line[0])
             for _ in range(n-1):
                 read = sys.stdin.readline().strip()
                 reads.append(read)
+                num_bases += len(read)
 
-        return (reads, paired, int(d))
+        return (reads, paired, int(d), num_bases)
 
     @staticmethod
     def print_FASTA(contigs):
@@ -744,7 +816,7 @@ class DebugIOHandler(IOHandler):
         if print_runtime:
             print("\n--- STARTING ASSEMBLY PROGRAM AT T = 0.00 ---")
 
-        reads, paired, d = IOHandler.read_input()
+        reads, paired, d, num_bases = IOHandler.read_input()
 
         if print_runtime:
             print("FINISHED READING INPUT AT T = {:.2f}".format(time.time()-start_time))
@@ -757,7 +829,9 @@ class DebugIOHandler(IOHandler):
         if print_snapshot:
             print_memory_snapshot("AFTER READING INPUT")
 
-        return (reads, paired, int(d))
+        print("NUMBER OF BASES: ", num_bases)
+
+        return (reads, paired, int(d), num_bases)
 
 
 def print_memory_snapshot(location):
@@ -774,22 +848,19 @@ def print_memory_snapshot(location):
     return
 
 
-def profile_assembler(print_runtime=False, print_snapshot=False, print_syssizeof=False):
+def profile_assembler(print_runtime=False, print_syssizeof=False):
 
-    if print_snapshot:
-        tracemalloc.start(25)
     start_time = time.time()
 
-    reads, paired, d = DebugIOHandler.read_input(
-        print_runtime=print_runtime, print_snapshot=print_snapshot, start_time=start_time,
-        print_syssizeof=print_syssizeof)
+    reads, paired, d, num_bases = DebugIOHandler.read_input(
+        print_runtime=print_runtime, start_time=start_time, print_syssizeof=print_syssizeof)
     graph = None
     if paired:
         graph = DebugPairedDeBruijnGraph(reads=reads, d=d, print_runtime=print_runtime,
-                                         start_time=start_time, print_syssizeof=print_syssizeof,
-                                         print_snapshot=print_snapshot)
+                                         start_time=start_time, print_syssizeof=print_syssizeof)
     else:
-        graph = DeBruijnGraph(reads)
+        graph = DebugDeBruijnGraph(reads, print_runtime=print_runtime,
+                                   start_time=start_time, print_syssizeof=print_syssizeof)
     contigs = graph.enumerate_contigs()
     DebugIOHandler.print_FASTA(contigs)
 
@@ -798,7 +869,7 @@ def profile_assembler(print_runtime=False, print_snapshot=False, print_syssizeof
 
 
 def main():
-    reads, paired, d = IOHandler.read_input()
+    reads, paired, d, num_bases = IOHandler.read_input()
     graph = None
     if paired:
         graph = PairedDeBruijnGraph(reads, d)
@@ -810,7 +881,7 @@ def main():
 
 if __name__ == "__main__":
     sys.setswitchinterval(10000)
-    main()
-    # profile_assembler(print_runtime=True, print_syssizeof=True, print_snapshot=False)
+    # main()
+    profile_assembler(print_runtime=True, print_syssizeof=True)
     # cProfile.run('main()')
-    # cProfile.run('profile_assembler(print_runtime=True, print_syssizeof=True, print_snapshot=False)')
+    # cProfile.run('profile_assembler(print_runtime=True, print_syssizeof=True)')
