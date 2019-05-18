@@ -6,12 +6,9 @@ from collections import deque, defaultdict
 from itertools import tee, combinations
 from functools import lru_cache
 from random import randint
-from statistics import median_low
 from array import array
 from math import log
 import time
-
-from pprint import pprint
 
 import cProfile
 
@@ -101,7 +98,6 @@ class CountMinSketch:
         self.num_rows = num_rows
         # Store in arrays with short ints to save space
         self.hash_values = [array('H', [0] * CountMinSketch.primes[i]) for i in range(num_rows)]
-        # self.sign_mod_vals = [CountMinSketch.primes[i] for i in range(num_rows, 2*num_rows)]
 
     def update(self, string, amount):
         string_hash = self._hash(string)
@@ -114,17 +110,6 @@ class CountMinSketch:
         est_from_min = min(self.hash_values[row][string_hash %
                                                  len(self.hash_values[row])] for row in range(self.num_rows))
         return est_from_min
-
-    def _get_sign(self, hash_val, row):
-        # The sign is picked depending on the even/odd-ness of the hash value
-        # The Universal Family of integer hash functions is pairwise independent.
-        # This gives an expected value of 0 for 'noise', which we rely on in this structure.
-        signs = [-1, 1]
-        return signs[hash_val % self.sign_mod_vals[row] % 2]
-    
-    def __getitem__(self, key):
-        # To allow working similar to dict
-        return self.estimate(key)
 
     @staticmethod
     @lru_cache(maxsize=512)
@@ -177,6 +162,10 @@ class CountMinSketch:
 
         return h1 & 0xffffffff
 
+    def __getitem__(self, key):
+        # To allow working similar to dict
+        return self.estimate(key)
+
     def __sizeof__(self):
         if hasattr(self, "total_mem"):
             return self.total_mem
@@ -185,9 +174,6 @@ class CountMinSketch:
         total_mem += sys.getsizeof(self.hash_values)
         for row in self.hash_values:
             total_mem += row.buffer_info()[1] * row.itemsize
-            # total_mem += sys.getsizeof(row)
-            # for member in row:
-            #     total_mem += sys.getsizeof(member)
         self.total_mem = total_mem
         self.total_mem += sys.getsizeof(self.total_mem)
         return total_mem
@@ -309,7 +295,7 @@ class DeBruijnGraph(AbstractDeBruijnGraph):
     HAMMING_DIST = 3
     ALLOWED_PAIRED_DIST_ERROR = 6
 
-    def __init__(self, reads : list):
+    def __init__(self, reads: list):
         self.num_edges = 0
         # Indexed by data/prefix_paired/suffix_paired.
         self.nodes = dict()
@@ -358,7 +344,7 @@ class DeBruijnGraph(AbstractDeBruijnGraph):
 
         return "".join(contig_pieces)
 
-    def _build_graph(self, kmer_counts, reads : list):
+    def _build_graph(self, kmer_counts, reads: list):
         ''' Builds the path constructor with coverage considerations
             i.e. Filter out edges with coverage under our set Hamming distance
         '''
@@ -371,7 +357,7 @@ class DeBruijnGraph(AbstractDeBruijnGraph):
                 if prefix in self.nodes and suffix in self.nodes:
                     if suffix in self.nodes[prefix].edges:
                         continue
-                
+
                 if kmer_counts[prefix] > DeBruijnGraph.HAMMING_DIST and \
                         kmer_counts[suffix] > DeBruijnGraph.HAMMING_DIST:
 
@@ -390,7 +376,7 @@ class DeBruijnGraph(AbstractDeBruijnGraph):
                 node.was_branching = True
 
     @staticmethod
-    def _count_kmers(reads : list) -> defaultdict:
+    def _count_kmers(reads: list) -> defaultdict:
         kmer_counts = defaultdict(int)
         for cur_read in reads:
             k_minus_one_mers = DeBruijnGraph._break_read_into_k_minus_one_mers(
@@ -401,7 +387,7 @@ class DeBruijnGraph(AbstractDeBruijnGraph):
         return kmer_counts
 
     @staticmethod
-    def _break_read_into_k_minus_one_mers(k : int, read : str, paired=False) -> list:
+    def _break_read_into_k_minus_one_mers(k: int, read: str, paired=False) -> list:
         ''' Non-paired output format for 'ACTGAC', k=4: ['ACT', 'CTG', 'TGA', 'GAC'] '''
         return [read[i:i+k-1] for i in range(len(read)-(k-2))]
 
@@ -439,7 +425,7 @@ class PairedDeBruijnGraph(AbstractDeBruijnGraph):
     HAMMING_DIST = 4
     ALLOWED_PAIRED_DIST_ERROR = 6
 
-    def __init__(self, reads : list, d : int):
+    def __init__(self, reads: list, d: int):
         self.num_edges = 0
         # Indexed by (data, paired_data)/(prefix, paired_prefix)/(suffix, paired_suffix)
         self.nodes = defaultdict(dict)
@@ -494,7 +480,7 @@ class PairedDeBruijnGraph(AbstractDeBruijnGraph):
 
         return "".join(contig_pieces)
 
-    def _build_graph(self, kmer_counts, reads : list):
+    def _build_graph(self, kmer_counts, reads: list):
 
         for i, read in enumerate(reads):
             # if i % 50000 == 0:
@@ -563,7 +549,7 @@ class PairedDeBruijnGraph(AbstractDeBruijnGraph):
 
     @staticmethod
     @lru_cache(maxsize=512)
-    def _find_longest_overlap_brute(pattern : str, text : str) -> int:
+    def _find_longest_overlap_brute(pattern: str, text: str) -> int:
         for start_text_pos in range(len(text) - PairedDeBruijnGraph.ALLOWED_PAIRED_DIST_ERROR):
             len_possible_overlap = min(len(text) - start_text_pos, len(pattern))
             for pattern_pos in range(len_possible_overlap):
@@ -575,7 +561,7 @@ class PairedDeBruijnGraph(AbstractDeBruijnGraph):
         return 0
 
     @staticmethod
-    def _count_kmers(reads : list) -> defaultdict:
+    def _count_kmers(reads: list) -> defaultdict:
         ''' Generates a structure to check whether a kmer appears frequently enough.
             Does not save the k-1mers to trade runtime for space.
             Currently uses a dict but can switch over a count-min sketch if space is a concern.
@@ -595,7 +581,7 @@ class PairedDeBruijnGraph(AbstractDeBruijnGraph):
         return kmer_counts_dict
 
     @staticmethod
-    def _break_read_into_k_minus_one_mers(k : int, read : str) -> list:
+    def _break_read_into_k_minus_one_mers(k: int, read: str) -> list:
         ''' Paired output format for ('ACTGAC', 'TCGATC'), k=4: 
             [('ACT', 'TCG'), ('CTG', 'CGA'), ('TGA', 'GAT'), ('GAC', 'ATC')]
         '''
@@ -627,7 +613,9 @@ class CMSPairedDeBruijnGraph(PairedDeBruijnGraph):
 
 
 class DebugGraph:
-    ''' Class to compose with various DeBruijnGraph classes for debugging. '''
+    ''' Class to compose with various DeBruijnGraph classes for debugging,
+        via multiple inheritance. Not meant to instantiate on its own.
+    '''
 
     def __init__(self, print_syssizeof=False, print_runtime=False, start_time=0, **kwargs):
         self.print_syssizeof = print_syssizeof
@@ -638,63 +626,73 @@ class DebugGraph:
     def enumerate_contigs(self):
         if self.print_runtime:
             print(
-                "\n--- STARTING TO ENUMERATE CONTIGS AT T = {:.2f} ---".format(time.time()-self.start_time))
+                "\n>--- STARTING TO ENUMERATE CONTIGS AT T = {:.2f} ---".format(time.time()-self.start_time))
         contigs = super().enumerate_contigs()
         if self.print_runtime:
             print(
-                "FINISHED ENUMERATING CONTIGS AT T = {:.2f} ---".format(time.time()-self.start_time))
+                ">FINISHED ENUMERATING CONTIGS AT T = {:.2f} ---".format(time.time()-self.start_time))
         return contigs
 
     def _build_graph(self, kmer_counts, reads):
         if self.print_runtime:
             print(
-                "\n--- STARTING TO BUILD GRAPH AT T = {:.2f} ---".format(time.time()-self.start_time))
+                "\n>--- STARTING TO BUILD GRAPH AT T = {:.2f} ---".format(time.time()-self.start_time))
         super()._build_graph(kmer_counts, reads)
         if self.print_runtime:
-            print("FINISHED BUILDING GRAPH AT T = {:.2f}".format(time.time()-self.start_time))
+            print(">FINISHED BUILDING GRAPH AT T = {:.2f}".format(time.time()-self.start_time))
         if self.print_syssizeof:
             node_mem = 0
             container_mem = sys.getsizeof(self.nodes)
-            for _, node in self.nodes.items():
+            for key, node in self.nodes.items():
+                container_mem += sys.getsizeof(key)
                 node_mem += sys.getsizeof(node)
-            print("SIZE OF GRAPH CONTAINER: {:,}".format(container_mem))
-            print("SIZE OF ALL NODES: {:,}".format(node_mem))
+            print(">SIZE OF GRAPH CONTAINER: {:,}".format(container_mem))
+            print(">SIZE OF ALL NODES: {:,}".format(node_mem))
 
     def _count_kmers(self, reads):
         if self.print_runtime:
             print(
-                "\n--- STARTING TO COUNT KMERS AT T = {:.2f} ---".format(time.time()-self.start_time))
+                "\n>--- STARTING TO COUNT KMERS AT T = {:.2f} ---".format(time.time()-self.start_time))
+
         kmer_counts_dict = super()._count_kmers(reads)
+
         if self.print_runtime:
-            print("FINISHED COUNTING KMERS AT T = {:.2f}".format(time.time()-self.start_time))
+            print(">FINISHED COUNTING KMERS AT T = {:.2f}".format(time.time()-self.start_time))
         if self.print_syssizeof:
             string_mem = 0
             container_mem = sys.getsizeof(kmer_counts_dict)
-            for k_minus_one_mer in kmer_counts_dict.items():
-                string_mem += sys.getsizeof(k_minus_one_mer)
-            print("SIZE OF COUNTS CONTAINER: {:,}".format(container_mem))
-            print("SIZE OF STRINGS IN COUNTS: {:,}".format(string_mem))
+            if kmer_counts_dict:
+                container_mem += sum(map(lambda x: sys.getsizeof(x[0]), kmer_counts_dict.items()))
+                # Regular graphs contain strings
+                if (isinstance(next(iter(kmer_counts_dict)), str)):
+                    string_mem += sum(map(lambda x: sys.getsizeof(x[1]), kmer_counts_dict.items()))
+                # Paired have tuples
+                else:
+                    string_mem += sum(map(lambda x: sys.getsizeof(x[0]), kmer_counts_dict.items()))
+                    string_mem += sum(map(lambda x: sys.getsizeof(x[1]), kmer_counts_dict.items()))
+            print(">SIZE OF COUNTS CONTAINER: {:,}".format(container_mem))
+            print(">SIZE OF STRINGS IN COUNTS: {:,}".format(string_mem))
         return kmer_counts_dict
 
     def _make_sketch(self, kmer_counts_dict: defaultdict) -> CountMinSketch:
         if self.print_runtime:
             print(
-                "\n--- STARTING TO MAKE COUNTMIN SKETCH AT T = {:.2f} ---".format(time.time()-self.start_time))
+                "\n>--- STARTING TO MAKE COUNTMIN SKETCH AT T = {:.2f} ---".format(time.time()-self.start_time))
 
         # Read the dictionary into a compressed data structure
         NUM_ROWS = 10
         kmer_counts = CountMinSketch(NUM_ROWS)
         for i, (kmer, count) in enumerate(kmer_counts_dict.items()):
             if self.print_runtime and i % 50000 == 0:
-                print("Processed {0} kmers by time T={1:.2f}".format(
+                print(">Processed {0} kmers by time T={1:.2f}".format(
                     i, time.time()-self.start_time))
             kmer_counts.update(kmer, count)
 
         if self.print_runtime:
-            print("FINISHED MAKING COUNTMIN SKETCH AT T = {:.2f}".format(
+            print(">FINISHED MAKING COUNTMIN SKETCH AT T = {:.2f}".format(
                 time.time()-self.start_time))
         if self.print_syssizeof:
-            print("SIZE OF COUNTMIN SKETCH: {:,}".format(sys.getsizeof(kmer_counts)))
+            print(">SIZE OF COUNTMIN SKETCH: {:,}".format(sys.getsizeof(kmer_counts)))
         return kmer_counts
 
 
@@ -762,42 +760,50 @@ class DebugIOHandler(IOHandler):
     @staticmethod
     def read_input(print_runtime=True, print_snapshot=False, print_syssizeof=False, start_time=0):
         if print_runtime:
-            print("\n--- STARTING ASSEMBLY PROGRAM AT T = 0.00 ---")
+            print("\n>--- STARTING ASSEMBLY PROGRAM AT T = 0.00 ---")
 
         reads, paired, d, num_bases = IOHandler.read_input()
 
         if print_runtime:
-            print("FINISHED READING INPUT AT T = {:.2f}".format(time.time()-start_time))
+            print(">FINISHED READING INPUT AT T = {:.2f}".format(time.time()-start_time))
         if print_syssizeof:
             total_string_memory = 0
             for read in reads:
                 total_string_memory += sys.getsizeof(read)
-            print("SIZE OF READ CONTAINER: {:,}".format(sys.getsizeof(reads)))
-            print("SIZE OF ALL READ STRINGS: {:,}".format(total_string_memory))
+            print(">SIZE OF READ CONTAINER: {:,}".format(sys.getsizeof(reads)))
+            print(">SIZE OF ALL READ STRINGS: {:,}".format(total_string_memory))
 
-        print("NUMBER OF BASES: ", num_bases)
+        print(">NUMBER OF BASES: ", num_bases)
 
         return (reads, paired, int(d), num_bases)
 
 
-def profile_assembler(print_runtime=False, print_syssizeof=False):
+def profile_assembler(print_runtime=False, print_syssizeof=False, using_count_min_sketch=False):
 
     start_time = time.time()
 
     reads, paired, d, num_bases = DebugIOHandler.read_input(
         print_runtime=print_runtime, start_time=start_time, print_syssizeof=print_syssizeof)
     graph = None
-    if paired:
-        graph = DebugPairedDeBruijnGraph(reads=reads, d=d, print_runtime=print_runtime,
-                                         start_time=start_time, print_syssizeof=print_syssizeof)
+    if using_count_min_sketch:
+        if paired:
+            graph = DebugCMSPairedDeBruijnGraph(reads=reads, d=d, print_runtime=print_runtime,
+                                                start_time=start_time, print_syssizeof=print_syssizeof)
+        else:
+            graph = DebugCMSDeBruijnGraph(
+                print_runtime=print_runtime, start_time=start_time, print_syssizeof=print_syssizeof, reads=reads)
     else:
-        graph = DebugCMSDeBruijnGraph(reads=reads, print_runtime=print_runtime,
-                                   start_time=start_time, print_syssizeof=print_syssizeof)
+        if paired:
+            graph = DebugPairedDeBruijnGraph(reads=reads, d=d, print_runtime=print_runtime,
+                                                start_time=start_time, print_syssizeof=print_syssizeof)
+        else:
+            graph = DebugDeBruijnGraph(
+                print_runtime=print_runtime, start_time=start_time, print_syssizeof=print_syssizeof, reads=reads)
     contigs = graph.enumerate_contigs()
     DebugIOHandler.print_FASTA(contigs)
 
     if print_runtime:
-        print("--- PROGRAM FINISHED AT T = {:.2f} ---".format(time.time()-start_time))
+        print(">--- PROGRAM FINISHED AT T = {:.2f} ---".format(time.time()-start_time))
 
 
 def main():
