@@ -14,6 +14,7 @@ def read_input():
 
 def generate_reads(genome, read_len=100, num_reads=34000, paired=False, d=0, delta=3):
     seed()
+    BASES = ['A', 'T', 'C', 'G']
     reads = list()
     for _ in range(num_reads):
         start_pos = randint(0, len(genome))
@@ -21,6 +22,12 @@ def generate_reads(genome, read_len=100, num_reads=34000, paired=False, d=0, del
         read = genome[start_pos:min(last_pos, len(genome))]
         if last_pos > len(genome):
             read += genome[0:last_pos % len(genome)]
+
+        # Introduce a substitution error
+        if (randint(0, 100//read_len - 1) == 0):
+            read = list(read)
+            read[randint(0, len(read) - 1)] = BASES[randint(0, 3)]
+            read = "".join(read)
 
         assert len(read) == read_len, "READ GENERATED IS SHORT"
 
@@ -49,7 +56,7 @@ def output_reads(reads):
 def main():
     genome = read_input()
     reads = generate_reads(genome, paired=True,
-                           read_len=100, num_reads=34000, d=400, delta=3)
+                           read_len=100, num_reads=700000, d=300, delta=3)
     output_reads(reads)
 
 
