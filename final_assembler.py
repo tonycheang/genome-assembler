@@ -1,15 +1,18 @@
 # python3
 
-import sys
 from abc import ABC, abstractmethod
 from collections import deque, defaultdict
 from itertools import tee, combinations
 from functools import lru_cache
+
 from random import randint
+
 from array import array
 from math import log
-import time
 
+import sys
+import argparse
+import time
 import cProfile
 
 ''' Implementing an Assembler
@@ -59,9 +62,10 @@ import cProfile
             O(V[E**2]) doable for ~300 contigs, even 10**3 contigs.
             O(VE) algorithm exists if runtime becomes a concern.
 
-    # TO FIX: Memory counting in DebugGraph to reflect superclass type...
-        __sizeof__ for superclass?
-    # Insert > after each statement.
+    Maybe instead of checking for kmer alignment/repeats, we check for read alignment/repeats
+    Then we... don't we need to count all the kmers anyway?
+    Or maybe we can store the reads instead in the CountMinSketch or whatever we use to check fidelity.
+    
 '''
 
 """ ----- STORAGE STRUCTURES ----- """
@@ -69,28 +73,18 @@ import cProfile
 
 class CountMinSketch:
     # 20 primes around 6*10**7
-    primes = [59999879, 59999881, 59999887, 59999917, 59999957, 59999971, 59999981, 59999983, 59999993, 59999999,
-              60000011, 60000013, 60000023, 60000047, 60000049, 60000067, 60000071, 60000091, 60000103, 60000113]
+    # primes = [59999879, 59999881, 59999887, 59999917, 59999957, 59999971, 59999981, 59999983, 59999993, 59999999,
+    #           60000011, 60000013, 60000023, 60000047, 60000049, 60000067, 60000071, 60000091, 60000103, 60000113]
 
     # 20 primes around 10**7
-    # primes = [9999889, 9999901, 9999907, 9999929, 9999931, 9999937, 9999943, 9999971, 9999973, 9999991,
-    #           10000019, 10000079, 10000103, 10000121, 10000139, 10000141, 10000169, 10000189, 10000223, 10000229]
+    primes = [9999889, 9999901, 9999907, 9999929, 9999931, 9999937, 9999943, 9999971, 9999973, 9999991,
+              10000019, 10000079, 10000103, 10000121, 10000139, 10000141, 10000169, 10000189, 10000223, 10000229]
 
     # 20 primes around 5*10**6
     # primes = [4999871,4999879,4999889,4999913,4999933,
     #           4999949,4999957,4999961,4999963,4999999,
     #           5000011,5000077,5000081,5000087,5000101,
     #           5000111,5000113,5000153,5000161,5000167]
-
-    # 20 primes around 10**6
-    # primes = [999863, 999883, 999907, 999917, 999931, 999953, 999959, 999961, 999979, 999983,
-    #           1000003, 1000033, 1000037, 1000039, 1000081, 1000099, 1000117, 1000121, 1000133, 1000151]
-
-    # 17 Primes around 5*10**5
-    # primes = [500009, 500029, 500041, 500057, 500069, 500083,
-    #           500107, 500111, 500113, 500119, 500153, 500167,
-    #           500173, 500177, 500179, 500197, 500209, 500231,
-    #           500233, 500237]
 
     def __init__(self, num_rows):
         assert num_rows < len(
@@ -421,9 +415,9 @@ class PairedDeBruijnGraph(AbstractDeBruijnGraph):
     '''
 
     # 28 for N. Delto, ?? for E. Coli
-    KMER_LEN = 29
-    HAMMING_DIST = 4
-    ALLOWED_PAIRED_DIST_ERROR = 6
+    KMER_LEN = 8
+    HAMMING_DIST = 3
+    ALLOWED_PAIRED_DIST_ERROR = 2
 
     def __init__(self, reads: list, d: int):
         self.num_edges = 0
@@ -483,8 +477,6 @@ class PairedDeBruijnGraph(AbstractDeBruijnGraph):
     def _build_graph(self, kmer_counts, reads: list):
 
         for i, read in enumerate(reads):
-            # if i % 50000 == 0:
-            #     print("Processing read no.", i)
             read_pairs = self._break_read_into_k_minus_one_mers(self.KMER_LEN, read)
             for prefix_paired, suffix_paired in self._pairwise(read_pairs):
                 # Indiscriminately filters any edge that has an erroneous k-1mer
@@ -511,12 +503,14 @@ class PairedDeBruijnGraph(AbstractDeBruijnGraph):
 
                     # Case: Either not node found, therefore edge cannot already exist.
                     if not (prefix_found and suffix_found):
-                        prefix_node.append_edge((suffix_node.data, suffix_node.paired_data))
+                        prefix_node.append_edge(
+                            (sys.intern(suffix_node.data), sys.intern(suffix_node.paired_data)))
                         suffix_node.num_edges_in += 1
                         self.num_edges += 1
                     # Case: Both nodes found but edge between them doesn't exist.
                     elif (suffix_node.data, suffix_node.paired_data) not in prefix_node.edges:
-                        prefix_node.append_edge((suffix_node.data, suffix_node.paired_data))
+                        prefix_node.append_edge(
+                            (sys.intern(suffix_node.data), sys.intern(suffix_node.paired_data)))
                         suffix_node.num_edges_in += 1
                         self.num_edges += 1
                     # Case: Both nodes found, and an edge between them exists. Don't add a new edge.
@@ -663,13 +657,8 @@ class DebugGraph:
             container_mem = sys.getsizeof(kmer_counts_dict)
             if kmer_counts_dict:
                 container_mem += sum(map(lambda x: sys.getsizeof(x[0]), kmer_counts_dict.items()))
-                # Regular graphs contain strings
-                if (isinstance(next(iter(kmer_counts_dict)), str)):
-                    string_mem += sum(map(lambda x: sys.getsizeof(x[1]), kmer_counts_dict.items()))
-                # Paired have tuples
-                else:
-                    string_mem += sum(map(lambda x: sys.getsizeof(x[0]), kmer_counts_dict.items()))
-                    string_mem += sum(map(lambda x: sys.getsizeof(x[1]), kmer_counts_dict.items()))
+                string_mem += sum(map(lambda x: sys.getsizeof(x[1]), kmer_counts_dict.items()))
+
             print(">SIZE OF COUNTS CONTAINER: {:,}".format(container_mem))
             print(">SIZE OF STRINGS IN COUNTS: {:,}".format(string_mem))
         return kmer_counts_dict
@@ -716,6 +705,21 @@ class DebugCMSPairedDeBruijnGraph(DebugGraph, CMSPairedDeBruijnGraph):
 
 
 class IOHandler:
+    @staticmethod
+    def read_args():
+        parser = argparse.ArgumentParser(
+            description="Generates contigs of a parent string given a set of substrings or \
+                paired substrings and writes them to a file.",
+            formatter_class=argparse.ArgumentDefaultsHelpFormatter)
+        parser.add_argument('-t', '--time', action='store_true',
+                            help="prints time at each stage during runtime to track program progression")
+        parser.add_argument('-m', '--memory', action='store_true',
+                            help="prints size of major data structures during runtime")
+        parser.add_argument('-c', '--count_min_sketch', action='store_true',
+                            help="uses a probabilistic data structure instead of a dictionary")
+
+        return parser.parse_args()
+
     @staticmethod
     def read_input():
         ''' Returns a list of reads or read-pairs, not yet broken down,
@@ -773,12 +777,10 @@ class DebugIOHandler(IOHandler):
             print(">SIZE OF READ CONTAINER: {:,}".format(sys.getsizeof(reads)))
             print(">SIZE OF ALL READ STRINGS: {:,}".format(total_string_memory))
 
-        print(">NUMBER OF BASES: ", num_bases)
-
         return (reads, paired, int(d), num_bases)
 
 
-def profile_assembler(print_runtime=False, print_syssizeof=False, using_count_min_sketch=False):
+def assemble_with_options(print_runtime=False, print_syssizeof=False, using_count_min_sketch=False):
 
     start_time = time.time()
 
@@ -795,7 +797,7 @@ def profile_assembler(print_runtime=False, print_syssizeof=False, using_count_mi
     else:
         if paired:
             graph = DebugPairedDeBruijnGraph(reads=reads, d=d, print_runtime=print_runtime,
-                                                start_time=start_time, print_syssizeof=print_syssizeof)
+                                             start_time=start_time, print_syssizeof=print_syssizeof)
         else:
             graph = DebugDeBruijnGraph(
                 print_runtime=print_runtime, start_time=start_time, print_syssizeof=print_syssizeof, reads=reads)
@@ -806,7 +808,7 @@ def profile_assembler(print_runtime=False, print_syssizeof=False, using_count_mi
         print(">--- PROGRAM FINISHED AT T = {:.2f} ---".format(time.time()-start_time))
 
 
-def main():
+def assemble_without_options():
     reads, paired, d, num_bases = IOHandler.read_input()
     graph = None
     if paired:
@@ -817,9 +819,15 @@ def main():
     IOHandler.print_FASTA(contigs)
 
 
+def main():
+    args = IOHandler.read_args()
+    if args.time or args.memory or args.count_min_sketch:
+        assemble_with_options(print_runtime=args.time, print_syssizeof=args.memory,
+                              using_count_min_sketch=args.count_min_sketch)
+    else:
+        assemble_without_options()
+
+
 if __name__ == "__main__":
-    sys.setswitchinterval(10000)
-    # main()
-    profile_assembler(print_runtime=True, print_syssizeof=True)
+    main()
     # cProfile.run('main()')
-    # cProfile.run('profile_assembler(print_runtime=True, print_syssizeof=True)')
