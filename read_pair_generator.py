@@ -6,7 +6,7 @@ from random import seed, randint
 
 """ Substring (or Substring Pair) Generator
     Generates a set of random substrings given a circular string.
-    Output:
+    Output to stdout:
         Number of lines on the first line
         Each subsequent line follows this formatting:
             Paired - "substring1|substring2|mean_distance"
@@ -23,14 +23,13 @@ def read_args():
     parser.add_argument('length', type=int, help="length of generated substrings")
     parser.add_argument('num_reads', type=int, help="number of substrings to generate")
     parser.add_argument('-p', '--paired', action='store_true',
-                        help="allows for paired substrings to be drawn from a distance away", default=False)
+                        help="allows for paired substrings to be drawn from a distance away")
     parser.add_argument('-d', '--distance', type=int, nargs='?',
-                        help="mean distance to draw paired substring from", default=3)
+                        help="mean distance to draw paired substring from", default=125)
     parser.add_argument('-e', '--error', type=int, nargs='?',
                         help="maximum error around mean distance to paired substring, i.e. distance +/- delta", default=0)
-    args = parser.parse_args()
-    print(args)
-    return args
+   
+    return parser.parse_args()
 
 
 def read_string_from_stdin():
@@ -48,7 +47,7 @@ def generate_reads(string, read_len=100, num_reads=34000, paired=False, d=0, del
         if last_pos > len(string):
             read += string[0:last_pos % len(string)]
 
-        # Introduce a substitution error
+        # Introduce a substitution error with a 1% chance
         if (randint(0, 100//read_len - 1) == 0):
             read = list(read)
             read[randint(0, len(read) - 1)] = BASES[randint(0, 3)]
