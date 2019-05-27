@@ -720,18 +720,22 @@ class DebugGraph:
 
 
 class DebugDeBruijnGraph(DebugGraph, DeBruijnGraph):
+    """ Delegates its instantiation to DebugGraph. Composes DebugGraph with DeBruijnGraph. """
     pass
 
 
 class DebugCMSDeBruijnGraph(DebugGraph, CMSDeBruijnGraph):
+    """ Delegates its instantiation to DebugGraph. Composes DebugGraph with CMSDeBruijnGraph. """
     pass
 
 
 class DebugPairedDeBruijnGraph(DebugGraph, PairedDeBruijnGraph):
+    """ Delegates its instantiation to DebugGraph. Composes DebugGraph with PairedDeBruijnGraph. """
     pass
 
 
 class DebugCMSPairedDeBruijnGraph(DebugGraph, CMSPairedDeBruijnGraph):
+    """ Delegates its instantiation to DebugGraph. Composes DebugGraph with CMSPairedDeBruijnGraph. """
     pass
 
 
