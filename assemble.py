@@ -1,11 +1,11 @@
-import sys
 import argparse
+import sys
 import time
-import cProfile
 
 from debruijn_graph import DeBruijnGraph, PairedDeBruijnGraph
 from debug_graph import DebugDeBruijnGraph, DebugCMSDeBruijnGraph
 from debug_graph import DebugPairedDeBruijnGraph, DebugCMSPairedDeBruijnGraph
+from pathlib import Path
 
 
 class IOHandler:
@@ -21,6 +21,8 @@ class IOHandler:
                             help="prints size of major data structures during runtime")
         parser.add_argument('-c', '--count_min_sketch', action='store_true',
                             help="uses a probabilistic data structure instead of a dictionary")
+        parser.add_argument('-s', '--stdout', action='store_true',
+                            help="switches output to stdout instead of file write")
 
         parser.add_argument('-k', '--kmer_length', type=int,
                             help="the k-value used to break down reads")
@@ -65,14 +67,32 @@ class IOHandler:
         return (reads, paired, int(d), num_bases)
 
     @staticmethod
-    def write_to_FASTQ(contigs):
-        # MODIFY THIS TO WRITE TO A FILE
-        # Check for subfolder to insert
-        # Check for file and append appropriate info
-        # Append K value for K-mer, Hamming Distance, Allowed Error
+    def write_stdout(contigs, consants, start_time):
+        print(">Time started: ", time.strftime("%c", time.localtime(start_time)))
+        print(">Number of contigs: ", len(contigs))
         for i, contig in enumerate(contigs):
             print(">CONTIG" + str(i+1))
             print(contig)
+        print(">Time finished: ", time.strftime("%c",time.localtime()))
+
+    @staticmethod
+    def write_FASTQ(contigs, constants, start_time):
+        output_dir = Path("./output")
+        output_dir.mkdir(exist_ok=True)
+        
+        formatted_start_time = time.strftime("%b_%d_%H:%M:%S_%Y", time.localtime(start_time))
+        formatted_constants = "k{0}_f{1}_e{2}".format(*constants)
+        filename = formatted_start_time + "_" + formatted_constants + ".FASTQ"
+        
+        output_file = Path("./output/" + filename)
+        with output_file.open(mode='x') as file:
+            file.write(">Time started: " + time.strftime("%c", time.localtime(start_time)) + "\n")
+            file.write(">Number of contigs: " + str(len(contigs)) + "\n")
+            for i, contig in enumerate(contigs):
+                file.write(">CONTIG" + str(i+1) + "\n")
+                file.write(contig)
+                file.write("\n")
+            file.write(">Time finished: " + time.strftime("%c", time.localtime()))
 
 
 class DebugIOHandler(IOHandler):
@@ -122,8 +142,8 @@ def assemble_with_options(print_runtime=False, print_syssizeof=False, using_coun
                 reads=reads, k=k, hamming_dist=hamming_dist, paired_error=paired_error)
 
     contigs = graph.enumerate_contigs()
-
-    return contigs
+    constants = (graph.KMER_LEN, graph.HAMMING_DIST, graph.ALLOWED_PAIRED_DIST_ERROR)
+    return contigs, constants
 
 
 def assemble_without_options(k=None, hamming_dist=None, paired_error=None):
@@ -135,7 +155,8 @@ def assemble_without_options(k=None, hamming_dist=None, paired_error=None):
     else:
         graph = DeBruijnGraph(reads, k=k, hamming_dist=hamming_dist, paired_error=paired_error)
     contigs = graph.enumerate_contigs()
-    return contigs
+    constants = (graph.KMER_LEN, graph.HAMMING_DIST, graph.ALLOWED_PAIRED_DIST_ERROR)
+    return contigs, constants
 
 
 def main():
@@ -143,15 +164,21 @@ def main():
     args = IOHandler.read_args()
 
     contigs = list()
+    constants = tuple()
+
     if args.time or args.memory or args.count_min_sketch:
-        contigs = assemble_with_options(
+        contigs, constants = assemble_with_options(
             print_runtime=args.time, print_syssizeof=args.memory,
             using_count_min_sketch=args.count_min_sketch, start_time=start_time,
             k=args.kmer_length, hamming_dist=args.filter_threshold, paired_error=args.error)
     else:
-        contigs = assemble_without_options(
+        contigs, constants = assemble_without_options(
             k=args.kmer_length, hamming_dist=args.filter_threshold, paired_error=args.error)
-    IOHandler.write_to_FASTQ(contigs)
+    
+    if args.stdout:
+        IOHandler.write_stdout(contigs, constants, start_time)
+    else:
+        IOHandler.write_FASTQ(contigs, constants, start_time)
 
     if args.time:
         print(">--- PROGRAM FINISHED AT T = {:.2f} ---".format(time.time()-start_time))
@@ -159,4 +186,5 @@ def main():
 
 if __name__ == "__main__":
     main()
+    # import cProfile
     # cProfile.run('main()')
