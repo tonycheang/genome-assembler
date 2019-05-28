@@ -97,7 +97,7 @@ class IOHandler:
 
 class DebugIOHandler(IOHandler):
     @staticmethod
-    def read_input(print_runtime=True, print_snapshot=False, print_syssizeof=False, start_time=0):
+    def read_input(print_runtime=True, print_syssizeof=False, start_time=0):
         if print_runtime:
             print("\n>--- STARTING ASSEMBLY PROGRAM AT T = 0.00 ---")
 
@@ -113,6 +113,12 @@ class DebugIOHandler(IOHandler):
             print(">SIZE OF ALL READ STRINGS: {:,}".format(total_string_memory))
 
         return (reads, paired, int(d), num_bases)
+    
+    @staticmethod
+    def write_FASTQ(contigs, constants, start_time, timeit):
+        if timeit:
+            print(">--- WRITING TO FILE AT T = {:.2f} ---".format(time.time()-start_time))
+        IOHandler.write_FASTQ(contigs, constants, start_time)
 
 
 def assemble_with_options(print_runtime=False, print_syssizeof=False, using_count_min_sketch=False,
@@ -178,7 +184,7 @@ def main():
     if args.stdout:
         IOHandler.write_stdout(contigs, constants, start_time)
     else:
-        IOHandler.write_FASTQ(contigs, constants, start_time)
+        DebugIOHandler.write_FASTQ(contigs, constants, start_time, timeit=args.time)
 
     if args.time:
         print(">--- PROGRAM FINISHED AT T = {:.2f} ---".format(time.time()-start_time))
