@@ -12,8 +12,11 @@ class IOHandler:
     @staticmethod
     def read_args():
         parser = argparse.ArgumentParser(
-            description="Generates contigs of a parent string given a set of substrings or \
-                paired substrings and writes them to a file.",
+            description="Generates contigs (consensus regions) of a parent string \
+                given a set of substrings or paired substrings. Takes in the number \
+                of reads or read-pairs in the first line, then a read (\"read\") or \
+                read-pair (\"read1|read2|mean_dist\") on each subsequent line. Outputs \
+                a file containing contigs to the subdirectory ./output by default.",
             formatter_class=argparse.ArgumentDefaultsHelpFormatter)
         parser.add_argument('-t', '--time', action='store_true',
                             help="prints time at each stage during runtime to track program progression")
@@ -73,17 +76,17 @@ class IOHandler:
         for i, contig in enumerate(contigs):
             print(">CONTIG" + str(i+1))
             print(contig)
-        print(">Time finished: ", time.strftime("%c",time.localtime()))
+        print(">Time finished: ", time.strftime("%c", time.localtime()))
 
     @staticmethod
     def write_FASTQ(contigs, constants, start_time):
         output_dir = Path("./output")
         output_dir.mkdir(exist_ok=True)
-        
+
         formatted_start_time = time.strftime("%b_%d_%H:%M:%S_%Y", time.localtime(start_time))
         formatted_constants = "k{0}_f{1}_e{2}".format(*constants)
         filename = formatted_start_time + "_" + formatted_constants + ".FASTQ"
-        
+
         output_file = Path("./output/" + filename)
         with output_file.open(mode='x') as file:
             file.write(">Time started: " + time.strftime("%c", time.localtime(start_time)) + "\n")
@@ -113,7 +116,7 @@ class DebugIOHandler(IOHandler):
             print(">SIZE OF ALL READ STRINGS: {:,}".format(total_string_memory))
 
         return (reads, paired, int(d), num_bases)
-    
+
     @staticmethod
     def write_FASTQ(contigs, constants, start_time, timeit):
         if timeit:
@@ -180,7 +183,7 @@ def main():
     else:
         contigs, constants = assemble_without_options(
             k=args.kmer_length, hamming_dist=args.filter_threshold, paired_error=args.error)
-    
+
     if args.stdout:
         IOHandler.write_stdout(contigs, constants, start_time)
     else:

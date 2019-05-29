@@ -16,12 +16,15 @@ from random import seed, randint
 
 def read_args():
     parser = argparse.ArgumentParser(
-        description="Generates random substrings of fixed length from an circular string, \
+        description="Generates random substrings of fixed length from an circular string \
             with the option for paired-substrings drawn uniformly from an average distance away. \
-            Introduces a substitution error with 1% chance.",
+            Introduces a substitution error with 1% chance. \
+            Takes in a string from standard input. \
+            Outputs to standard output the number of lines in the first line and \
+            substrings (\"ss\") or substring-pairs (\"ss1|ss2|mean_dist\") in subsequent lines.",
         formatter_class=argparse.ArgumentDefaultsHelpFormatter)
     parser.add_argument('length', type=int, help="length of generated substrings")
-    parser.add_argument('num_reads', type=int, help="number of substrings to generate")
+    parser.add_argument('num_reads', type=int, help="number of single substrings or paired-substrings to generate")
     parser.add_argument('-p', '--paired', action='store_true',
                         help="allows for paired substrings to be drawn from a distance away")
     parser.add_argument('-d', '--distance', type=int, nargs='?',
