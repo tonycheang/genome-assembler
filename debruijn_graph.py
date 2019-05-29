@@ -31,6 +31,10 @@ class AbstractDeBruijnGraph(ABC):
     def _break_read_into_k_minus_one_mers(k: int, read: str):
         ''' Breaks into list of prefix_pairs and suffix_pairs. '''
         pass
+    
+    @staticmethod
+    def valid_allowed_error(KMER_LEN, ALLOWED_PAIRED_DIST_ERROR):
+        return KMER_LEN > ALLOWED_PAIRED_DIST_ERROR
 
     @staticmethod
     def _pairwise(iterable):
@@ -59,6 +63,9 @@ class DeBruijnGraph(AbstractDeBruijnGraph):
             self.HAMMING_DIST = hamming_dist
         if paired_error is not None:
             self.ALLOWED_PAIRED_DIST_ERROR = paired_error
+        
+        if not self.valid_allowed_error(self.KMER_LEN, self.ALLOWED_PAIRED_DIST_ERROR):
+            raise ValueError("Allowed error must be less than the kmer length.")
 
         self.num_edges = 0
         # Indexed by data/prefix_paired/suffix_paired.
@@ -164,6 +171,9 @@ class CMSDeBruijnGraph(DeBruijnGraph):
             self.HAMMING_DIST = hamming_dist
         if paired_error is not None:
             self.ALLOWED_PAIRED_DIST_ERROR = paired_error
+        
+        if not self.valid_allowed_error(self.KMER_LEN, self.ALLOWED_PAIRED_DIST_ERROR):
+            raise ValueError("Allowed error must be less than the kmer length.")
 
         self.num_edges = 0
         # Indexed by data/prefix_paired/suffix_paired.
@@ -204,6 +214,9 @@ class PairedDeBruijnGraph(AbstractDeBruijnGraph):
             self.HAMMING_DIST = hamming_dist
         if paired_error is not None:
             self.ALLOWED_PAIRED_DIST_ERROR = paired_error
+        
+        if not self.valid_allowed_error(self.KMER_LEN, self.ALLOWED_PAIRED_DIST_ERROR):
+            raise ValueError("Allowed error must be less than the kmer length.")
 
         self.num_edges = 0
         # Indexed by (data, paired_data)/(prefix, paired_prefix)/(suffix, paired_suffix)
@@ -375,6 +388,9 @@ class CMSPairedDeBruijnGraph(PairedDeBruijnGraph):
             self.HAMMING_DIST = hamming_dist
         if paired_error is not None:
             self.ALLOWED_PAIRED_DIST_ERROR = paired_error
+        
+        if not self.valid_allowed_error(self.KMER_LEN, self.ALLOWED_PAIRED_DIST_ERROR):
+            raise ValueError("Allowed error must be less than the kmer length.")
 
         self.num_edges = 0
         # Indexed by (data, paired_data)/(prefix, paired_prefix)/(suffix, paired_suffix)
