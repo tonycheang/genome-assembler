@@ -6,7 +6,7 @@ Given a set of error-prone short strings drawn from a long unknown parent string
 
 ## Contents
 
-The repository contains the assembler, three genomes drawn from the NIH, and a substring generator to simulate input for the assembler. The output files (extension FASTQ) can be compared using the NGA50 values from [QUAST], Quality Assessment Tool for Genome Assembly. Example files provided in ./output.
+The repository contains the assembler, three genomes drawn from the NIH, and a substring generator to simulate input for the assembler. The output files (extension FASTQ) can be compared using the NGA50 values from [QUAST](http://quast.bioinf.spbau.ru/, "Quality Assessment Tool for Genome Assembly"). Example files provided in ./output.
 
 ## Installation
 
