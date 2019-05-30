@@ -1,22 +1,22 @@
 # &#129516; Genome Assembler
 
-## Problem
+## Problem Statement
 
-Given a set of error-prone short strings (reads) drawn from a long unknown parent string (genome), we would like to reconstruct the parent string as accurately as possible. 
+Given a set of error-prone short strings (reads) drawn from a long unknown parent string (genome), we would like to reconstruct the parent string as accurately as possible.
 
-This assembler handles circular strings, which is characteristic of bacteria genomes.  It takes in either reads or read-pairs (two reads known to be a distance apart) and outputs contigs (stretches of the parent string with consensus).
-
-&nbsp;
-
-## Contents
-
-The repository contains the assembler, three genomes drawn from NCBI, and a substring generator to simulate input for the assembler. The output files (extension FASTQ) can be compared using the NGA50 values from [QUAST](http://quast.bioinf.spbau.ru/ "Quality Assessment Tool for Genome Assembly"). Example files provided in ./output.
+This assembler handles circular strings, which is characteristic of bacteria genomes.  It takes in either read-pairs (two reads known to be a distance apart) or non-paired reads and outputs contigs (stretches of the parent string with consensus).
 
 &nbsp;
 
-## Installation
+## :open_file_folder: Contents
 
-Download the repository.
+The repository contains the assembler, three genomes drawn from NCBI, and a substring generator to simulate input for the assembler. The output files can be assessed using [QUAST](http://quast.bioinf.spbau.ru/ "Quality Assessment Tool for Genome Assembly"). The example outputs provided have been assessed [here](http://quast.bioinf.spbau.ru/reports/30\_May\_2019\_23:09:09\_000000/report.html).
+
+&nbsp;
+
+## :floppy\_disk: Installation
+
+Download the repository. Run the scripts with Python 3.7.
 
 &nbsp;
 
@@ -30,7 +30,7 @@ The read-generator takes a string from standard input and outputs the number of 
 
 ### Examples
 
-The following program generates 60 read-pairs, each read of length 8 from the echo’ed string, breaks them into substrings of length 6 for assembly, and reconstructs a single contig.
+The following program generates 60 read-pairs, each read of length 8 from the echo’ed string, breaks them into substrings of length 6 (kmer\_length) for assembly, and reconstructs a single contig.
 
 ```Bash
 echo "It_was_many_and_many_a_year_ago_" |
@@ -44,7 +44,7 @@ o_It_was_many_and_many_a_year_ag
 >Time finished:  Wed May 29 21:24:40 2019
 ```
 
-Unpaired-reads can also be used with the assembler, but resolving repeats can pose a problem.
+Unpaired-reads can also be used with the assembler, but resolving repeats can pose a problem if the kmer length doesn't bridge the repeat.
 
 ```Bash
 $ echo "It_was_many_and_many_a_year_ago_" |
