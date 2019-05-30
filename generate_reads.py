@@ -16,7 +16,7 @@ from random import seed, randint
 
 def read_args():
     parser = argparse.ArgumentParser(
-        description="Generates random substrings of fixed length from an circular string \
+        description="Generates random substrings of fixed length from a circular string \
             with the option for paired-substrings drawn uniformly from an average distance away. \
             Introduces a substitution error with 1% chance. \
             Takes in a string from standard input. \
