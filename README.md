@@ -1,18 +1,24 @@
 # &#129516; Genome Assembler
 
-## &#129513; Problem
+## Problem
 
 Given a set of error-prone short strings (reads) drawn from a long unknown parent string (genome), we would like to reconstruct the parent string as accurately as possible. 
 
 This assembler handles circular strings, which is characteristic of bacteria genomes.  It takes in either reads or read-pairs (two reads known to be a distance apart) and outputs contigs (stretches of the parent string with consensus).
 
-## :gift: Contents
+&nbsp;
+
+## Contents
 
 The repository contains the assembler, three genomes drawn from NCBI, and a substring generator to simulate input for the assembler. The output files (extension FASTQ) can be compared using the NGA50 values from [QUAST]([http://quast.bioinf.spbau.ru/], Quality Assessment Tool for Genome Assembly). Example files provided in ./output.
 
-## :floppy_disk: Installation
+&nbsp;
+
+## Installation
 
 Download the repository.
+
+&nbsp;
 
 ## :hammer: Usage
 
@@ -20,12 +26,16 @@ First-time assembly of a genome will not have a reference to draw from. However,
 
 The read-generator takes a string from standard input and outputs the number of lines and a list of either unpaired-reads or read-pairs to standard output. The assembler will write its output to a file in ./output or to the standard output if using the stdout flag.
 
+&nbsp;
+
 ### Examples
 
 The following program generates 60 read-pairs, each read of length 8 from the echo’ed string, breaks them into substrings of length 6 for assembly, and reconstructs a single contig.
 
 ```Bash
-echo "It_was_many_and_many_a_year_ago_" | python generate_reads.py --paired 8 60 | python assemble.py --stdout --kmer_length 6
+echo "It_was_many_and_many_a_year_ago_" |
+> python generate_reads.py --paired 8 60 |
+> python assemble.py --stdout --kmer_length 6
 
 >Time started:  Wed May 29 21:24:40 2019
 >Number of contigs:  1
@@ -37,7 +47,9 @@ o_It_was_many_and_many_a_year_ag
 Unpaired-reads can also be used with the assembler, but resolving repeats can pose a problem.
 
 ```Bash
-$ echo "It_was_many_and_many_a_year_ago_" | python generate_reads.py 8 120 | python assemble.py --stdout --kmer_length 6
+$ echo "It_was_many_and_many_a_year_ago_" |
+> python generate_reads.py 8 120 |
+> python assemble.py --stdout --kmer_length 6
 
 >Time started:  Wed May 29 21:48:57 2019
 >Number of contigs:  3
@@ -53,7 +65,9 @@ _a
 The product between the read length and the number of reads should be about 30 for best results (halved for read-pairs, i.e. average coverage per character should be 30). Otherwise substitution errors in the reads may not be handled properly, leading to erroneous contigs or less-complete reconstruction. The following attempt at reconstructing a string of length 24 only uses a coverage of 10.
 
 ```Bash
-$ echo "In_a_kingdom_by_the_sea_" | python generate_reads.py 10 24 | python assemble.py --stdout --kmer_length 6 --filter 2
+$ echo "In_a_kingdom_by_the_sea_" |
+> python generate_reads.py 10 24 |
+> python assemble.py --stdout --kmer_length 6 --filter 2
 
 >Time started:  Wed May 29 21:43:23 2019
 >Number of contigs:  1
@@ -65,10 +79,14 @@ ingdom_by_the_sea_In
 Finally, these programs can simulate reconstructing a real genome. The results by default are written to a file in ./output with the starting timestamp and constants used in reconstruction (e.g. May\_30\_09:57:10\_2019\_k6\_f3\_e2.FASTQ)
 
 ```Bash
-cat ./reference_genomes/n_deltocephalinicola.txt | python generate_reads.py --paired 100 19000 | python assemble.py --kmer_length 28 --filter 3
+cat ./reference_genomes/n_deltocephalinicola.txt |
+> python generate_reads.py --paired 100 19000 |
+> python assemble.py --kmer_length 28 --filter 3
 ```
 
 Note that this assembly will take a few seconds. Assembling E. coli from 700,000 read-pairs of length 100 each read takes about 10 minutes and 6.5 gigabytes of memory.
+
+&nbsp;
 
 ### generate\_reads.py
 
@@ -76,7 +94,8 @@ Generates random substrings of fixed length from a circular string with the opti
 
 ```Bash
 # Sample input:
-$ echo "That_a_maiden_there_lived_whom_you_may_know_" | python generate_reads.py --paired --distance 4 10 5
+$ echo "That_a_maiden_there_lived_whom_you_may_know_" |
+> python generate_reads.py --paired --distance 4 10 5
 # Sample output:
 5
 _That_a_ma|t_a_maiden|4
@@ -94,6 +113,8 @@ usage: generate_reads.py [-h] [-p] [-d [DISTANCE]] [-e [ERROR]]
                          length num_reads
 ...
 ```
+
+&nbsp;
 
 ### assemble.py
 
