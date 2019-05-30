@@ -10,7 +10,7 @@ This assembler handles circular strings, which is characteristic of bacteria gen
 
 ## Contents
 
-The repository contains the assembler, three genomes drawn from NCBI, and a substring generator to simulate input for the assembler. The output files (extension FASTQ) can be compared using the NGA50 values from [QUAST]([http://quast.bioinf.spbau.ru/], Quality Assessment Tool for Genome Assembly). Example files provided in ./output.
+The repository contains the assembler, three genomes drawn from NCBI, and a substring generator to simulate input for the assembler. The output files (extension FASTQ) can be compared using the NGA50 values from [QUAST](http://quast.bioinf.spbau.ru/ "Quality Assessment Tool for Genome Assembly"). Example files provided in ./output.
 
 &nbsp;
 
@@ -96,6 +96,7 @@ Generates random substrings of fixed length from a circular string with the opti
 # Sample input:
 $ echo "That_a_maiden_there_lived_whom_you_may_know_" |
 > python generate_reads.py --paired --distance 4 10 5
+
 # Sample output:
 5
 _That_a_ma|t_a_maiden|4
