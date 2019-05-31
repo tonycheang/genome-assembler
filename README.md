@@ -21,8 +21,6 @@ Download the repository. Run the scripts with Python 3.7.
 
 The repository contains the assembler, three genomes drawn from NCBI, and a substring generator to simulate input for the assembler. The example outputs provided have been assessed [here](http://quast.bioinf.spbau.ru/reports/30\_May\_2019\_23:09:09\_000000/report.html).
 
-<a href="#-genome-assembler"><font size=1>back to top</font></a>
-
 ## &#128736; Usage
 
 First-time assembly of a genome will not have a reference to draw from. However, for our purposes—to see the assembler in action—it’s easiest to use both the read-generator along with the assembler.
@@ -103,7 +101,7 @@ ingdom_by_the_sea_In
 
 >With less coverage, substitution errors in the reads may not be handled properly, leading to erroneous contigs or less-complete reconstruction.
 
-<a href="#-genome-assembler"><font size=1>back to top</font></a>
+<a href="#-genome-assembler">top</a>
 
 ## :bar_chart: Output Assessment
 
@@ -111,15 +109,11 @@ Output files can be assessed using [QUAST](http://quast.bioinf.spbau.ru/ "Qualit
 
 To assess, first add the files to the list of assemblies.
 
-<!-- ![Upload](https://user-images.githubusercontent.com/18232816/58675344-c3d4f000-8308-11e9-9bcd-a169cf328c8f.png) -->
-
 <p align="center">
 <img src="https://user-images.githubusercontent.com/18232816/58675344-c3d4f000-8308-11e9-9bcd-a169cf328c8f.png" height="200" title="Upload">
 </p>
 
 Then check 'another genome' and upload the corresponding reference (.fasta file in ./reference_genomes).
-
-<!-- ![Add a Reference Genome](https://user-images.githubusercontent.com/18232816/58675346-c6374a00-8308-11e9-8812-77462590ad0d.png) -->
 
 <p align="center">
 <img src="https://user-images.githubusercontent.com/18232816/58675346-c6374a00-8308-11e9-8812-77462590ad0d.png" height="150" title="Add a Reference Genome">
@@ -131,7 +125,7 @@ A successful assessment will produce the following table.
 
 >The NGA50 value boxed in blue is a typical measure of quality of reconstruction. This value may vary depending on the input data, the parameters of assembly, and the complexity of the parent genome.
 
-<a href="#-genome-assembler"><font size=1>back to top</font></a>
+<a href="#-genome-assembler">top</a>
 
 ## :bookmark_tabs: Main Scripts
 
@@ -162,7 +156,7 @@ usage: generate_reads.py [-h] [-p] [-d [DISTANCE]] [-e [ERROR]]
 ...
 ```
 
-<a href="#-genome-assembler"><font size=1>back to top</font></a>
+<a href="#-genome-assembler">top</a>
 
 ### assemble.py
 
@@ -201,7 +195,7 @@ usage: assemble.py [-h] [-t] [-m] [-c] [-s] [-k KMER_LENGTH]
 ...
 ```
 
-<a href="#-genome-assembler"><font size=1>back to top</font></a>
+<a href="#-genome-assembler">top</a>
 
 ## :pray: Acknowledgements
 
