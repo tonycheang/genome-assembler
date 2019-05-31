@@ -4,6 +4,18 @@
 
 This assembler handles circular strings, characteristic of bacteria genomes.  It takes in either read-pairs (two reads known to be a distance apart) or non-paired reads and outputs contigs (stretches of the parent string with consensus).
 
+## Table of Contents
+
+* [Installation and Contents](#floppy_disk-installation-and-contents)
+* [Usage](#hammer-usage)
+    * [Examples](#examples)
+* [Output Assessment](#chart_with_upwards_trend-output-assessment)
+* [Main Scripts](#bookmark_tabs-main-scripts)
+    * [generate_reads.py](#generate_readspy)
+    * [assemble.py](#assemblepy)
+* [Acknowledgements](#pray-acknowledgements)
+
+
 ## :floppy\_disk: Installation and Contents
 
 Download the repository. Run the scripts with Python 3.7.
@@ -90,17 +102,25 @@ ingdom_by_the_sea_In
 
 >With less coverage, substitution errors in the reads may not be handled properly, leading to erroneous contigs or less-complete reconstruction.
 
-## :chart_with_upwards_trend: Assessment of Output
+## :chart_with_upwards_trend: Output Assessment
 
 Output files can be assessed using [QUAST](http://quast.bioinf.spbau.ru/ "Quality Assessment Tool for Genome Assembly").
 
 To assess, first add the files to the list of assemblies.
 
-![Upload](https://user-images.githubusercontent.com/18232816/58675344-c3d4f000-8308-11e9-9bcd-a169cf328c8f.png)
+<!-- ![Upload](https://user-images.githubusercontent.com/18232816/58675344-c3d4f000-8308-11e9-9bcd-a169cf328c8f.png) -->
+
+<p align="center">
+<img src="https://user-images.githubusercontent.com/18232816/58675344-c3d4f000-8308-11e9-9bcd-a169cf328c8f.png" height="200" title="Upload">
+</p>
 
 Then check 'another genome' and upload the corresponding reference (.fasta file in ./reference_genomes).
 
-![Add a Reference Genome](https://user-images.githubusercontent.com/18232816/58675346-c6374a00-8308-11e9-8812-77462590ad0d.png)
+<!-- ![Add a Reference Genome](https://user-images.githubusercontent.com/18232816/58675346-c6374a00-8308-11e9-8812-77462590ad0d.png) -->
+
+<p align="center">
+<img src="https://user-images.githubusercontent.com/18232816/58675346-c6374a00-8308-11e9-8812-77462590ad0d.png" height="150" title="Add a Reference Genome">
+</p>
 
 A successful assessment will produce the following table.
 
