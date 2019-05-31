@@ -110,13 +110,13 @@ Output files can be assessed using [QUAST](http://quast.bioinf.spbau.ru/ "Qualit
 To assess, first add the files to the list of assemblies.
 
 <p align="center">
-<img src="https://user-images.githubusercontent.com/18232816/58675344-c3d4f000-8308-11e9-9bcd-a169cf328c8f.png" style="max-height:200px" title="Upload">
+<img src="https://user-images.githubusercontent.com/18232816/58675344-c3d4f000-8308-11e9-9bcd-a169cf328c8f.png" width="370px" title="Upload">
 </p>
 
 Then check 'another genome' and upload the corresponding reference (.fasta file in ./reference_genomes).
 
 <p align="center">
-<img src="https://user-images.githubusercontent.com/18232816/58675346-c6374a00-8308-11e9-8812-77462590ad0d.png" style="max-height:150px" title="Add a Reference Genome">
+<img src="https://user-images.githubusercontent.com/18232816/58675346-c6374a00-8308-11e9-8812-77462590ad0d.png" width="450px" title="Add a Reference Genome">
 </p>
 
 A successful assessment will produce the following table.
