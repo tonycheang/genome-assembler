@@ -84,7 +84,7 @@ _a
 
 > Resolving repeats can pose a problem if the kmer length doesn't bridge repeated regions.
 
-For best results, the product between the read length and the number of reads should be about 3 (halved for read-pairs, i.e. average coverage depth per character should be 30). The following attempt at reconstructing a string of length 24 only uses a coverage depth of 10.
+For best results, the product between the read length and the number of reads should be about 30 (halved for read-pairs, i.e. average coverage depth per character should be 30). The following attempt at reconstructing a string of length 24 only uses a coverage depth of 10.
 
 ```Bash
 $ echo "In_a_kingdom_by_the_sea_" |
