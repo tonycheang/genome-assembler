@@ -45,11 +45,7 @@ class AbstractDeBruijnGraph(ABC):
 
 
 class DeBruijnGraph(AbstractDeBruijnGraph):
-    ''' Implementation relies on k-1mer being a single key into self.nodes.
-        This is unlike the PairedDeBruijnGraph, and allows for kmer_counts
-        to hold the entire edge, removing the need to keep track of reads
-        or all the k-1mers in a separate structure.
-    '''
+    ''' Regular DeBruijn Graph with prefix-suffix pairs as edges. '''
 
     KMER_LEN = 29
     HAMMING_DIST = 3
@@ -96,8 +92,7 @@ class DeBruijnGraph(AbstractDeBruijnGraph):
         return contigs
 
     def _get_longest_contig(self, cur_node) -> str:
-        ''' Finds the longest contig by moving both forward and backward until
-            nodes with branches are found.
+        ''' Finds the longest contig by moving both forward from a branching node to another. 
         '''
         contig_pieces = deque()
         # Ensures movement forward at least one edge.
@@ -196,7 +191,7 @@ class CMSDeBruijnGraph(DeBruijnGraph):
 class PairedDeBruijnGraph(AbstractDeBruijnGraph):
     ''' Implementation relies on idea of dual-key with paired-reads.
         That is, self.nodes is a defaultdict of dicts; two keys are necessary to identify a node.
-        A tuple would have sufficed if paired reads were drawn with a perfect distance,
+        A tuple into a dict would have sufficed if paired reads were drawn with a perfect distance,
         but since it's inexact, it's helpful to be able to iterate through the secondary dict
         for key comparison.
     '''

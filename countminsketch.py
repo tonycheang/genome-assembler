@@ -2,7 +2,7 @@ import sys
 from array import array
 from functools import lru_cache
 
-
+''' Further testing of this data structure is required. '''
 class CountMinSketch:
     # Various arrays of primes for testing purposes.
     # 20 primes cenetered around 6*10**7

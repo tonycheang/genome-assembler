@@ -39,7 +39,8 @@ class IOHandler:
     @staticmethod
     def read_input():
         ''' Returns a list of reads or read-pairs, not yet broken down,
-            and indications of which (paired?, d).        
+            indications of whether the reads are paired, their distance if so,
+            and the number of bases total.        
         '''
         n = int(sys.stdin.readline().strip())
         paired = False
