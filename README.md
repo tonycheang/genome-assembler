@@ -6,8 +6,8 @@ This assembler handles circular strings, characteristic of bacteria genomes.  It
 
 ## :world_map: Table of Contents
 
-* [Installation and Contents](#0xF0-installation-and-contents)
-* [Usage](#hammer-usage)
+* [Installation and Contents](#-installation-and-contents)
+* [Usage](#-usage)
     * [Examples](#examples)
 * [Output Assessment](#bar_chart-output-assessment)
 * [Main Scripts](#bookmark_tabs-main-scripts)
