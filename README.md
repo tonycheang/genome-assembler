@@ -4,25 +4,25 @@
 
 This assembler handles circular strings, characteristic of bacteria genomes.  It takes in either read-pairs (two reads known to be a distance apart) or non-paired reads and outputs contigs (stretches of the parent string with consensus).
 
-## Table of Contents
+## :world_map: Table of Contents
 
-* [Installation and Contents](#floppy_disk-installation-and-contents)
+* [Installation and Contents](#0xF0-installation-and-contents)
 * [Usage](#hammer-usage)
     * [Examples](#examples)
-* [Output Assessment](#chart_with_upwards_trend-output-assessment)
+* [Output Assessment](#bar_chart-output-assessment)
 * [Main Scripts](#bookmark_tabs-main-scripts)
     * [generate_reads.py](#generate_readspy)
     * [assemble.py](#assemblepy)
 * [Acknowledgements](#pray-acknowledgements)
 
 
-## :floppy\_disk: Installation and Contents
+## &#128230; Installation and Contents
 
 Download the repository. Run the scripts with Python 3.7.
 
 The repository contains the assembler, three genomes drawn from NCBI, and a substring generator to simulate input for the assembler. The example outputs provided have been assessed [here](http://quast.bioinf.spbau.ru/reports/30\_May\_2019\_23:09:09\_000000/report.html).
 
-## :hammer: Usage
+## &#128736; Usage
 
 First-time assembly of a genome will not have a reference to draw from. However, for our purposes—to see the assembler in action—it’s easiest to use both the read-generator along with the assembler.
 
@@ -102,7 +102,7 @@ ingdom_by_the_sea_In
 
 >With less coverage, substitution errors in the reads may not be handled properly, leading to erroneous contigs or less-complete reconstruction.
 
-## :chart_with_upwards_trend: Output Assessment
+## :bar_chart: Output Assessment
 
 Output files can be assessed using [QUAST](http://quast.bioinf.spbau.ru/ "Quality Assessment Tool for Genome Assembly").
 
