@@ -15,12 +15,13 @@ This assembler handles circular strings, characteristic of bacteria genomes.  It
     * [assemble.py](#assemblepy)
 * [Acknowledgements](#pray-acknowledgements)
 
-
 ## &#128230; Installation and Contents
 
 Download the repository. Run the scripts with Python 3.7.
 
 The repository contains the assembler, three genomes drawn from NCBI, and a substring generator to simulate input for the assembler. The example outputs provided have been assessed [here](http://quast.bioinf.spbau.ru/reports/30\_May\_2019\_23:09:09\_000000/report.html).
+
+<a href="#-genome-assembler"><font size=1>back to top</font></a>
 
 ## &#128736; Usage
 
@@ -102,6 +103,8 @@ ingdom_by_the_sea_In
 
 >With less coverage, substitution errors in the reads may not be handled properly, leading to erroneous contigs or less-complete reconstruction.
 
+<a href="#-genome-assembler"><font size=1>back to top</font></a>
+
 ## :bar_chart: Output Assessment
 
 Output files can be assessed using [QUAST](http://quast.bioinf.spbau.ru/ "Quality Assessment Tool for Genome Assembly").
@@ -127,6 +130,8 @@ A successful assessment will produce the following table.
 ![Table of statistics](https://user-images.githubusercontent.com/18232816/58674624-828f1100-8305-11e9-865d-591f5a081516.png)
 
 >The NGA50 value boxed in blue is a typical measure of quality of reconstruction. This value may vary depending on the input data, the parameters of assembly, and the complexity of the parent genome.
+
+<a href="#-genome-assembler"><font size=1>back to top</font></a>
 
 ## :bookmark_tabs: Main Scripts
 
@@ -156,6 +161,8 @@ usage: generate_reads.py [-h] [-p] [-d [DISTANCE]] [-e [ERROR]]
                          length num_reads
 ...
 ```
+
+<a href="#-genome-assembler"><font size=1>back to top</font></a>
 
 ### assemble.py
 
@@ -193,6 +200,8 @@ usage: assemble.py [-h] [-t] [-m] [-c] [-s] [-k KMER_LENGTH]
                    [-f FILTER_THRESHOLD] [-e ERROR]
 ...
 ```
+
+<a href="#-genome-assembler"><font size=1>back to top</font></a>
 
 ## :pray: Acknowledgements
 
