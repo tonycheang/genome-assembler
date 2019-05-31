@@ -39,9 +39,8 @@ cat ./reference_genomes/n_deltocephalinicola.txt |
 
 The results by default are written to a file in ./output titled with the starting timestamp and constants used in reconstruction.
 
-> May\_30\_09:57:10\_2019\_k6\_f3\_e2.FASTQ
-
-```Bash
+```FASTQ
+# May_30_09:57:10_2019_k6_f3_e2.FASTQ
 >Time started: Thu May 30 16:05:05 2019
 >Number of contigs: 15
 >CONTIG1
@@ -85,7 +84,7 @@ _a
 
 > Resolving repeats can pose a problem if the kmer length doesn't bridge repeated regions.
 
-For best results, the product between the read length and the number of reads should be about 30 for best results (halved for read-pairs, i.e. average coverage depth per character should be 30). The following attempt at reconstructing a string of length 24 only uses a coverage depth of 10.
+For best results, the product between the read length and the number of reads should be about 3 (halved for read-pairs, i.e. average coverage depth per character should be 30). The following attempt at reconstructing a string of length 24 only uses a coverage depth of 10.
 
 ```Bash
 $ echo "In_a_kingdom_by_the_sea_" |
@@ -123,7 +122,7 @@ A successful assessment will produce the following table.
 
 ![Table of statistics](https://user-images.githubusercontent.com/18232816/58674624-828f1100-8305-11e9-865d-591f5a081516.png)
 
->The NGA50 value boxed in blue is a typical measure of quality of reconstruction. This value may vary depending on the input data, the parameters of assembly, and the complexity of the parent genome.
+>The NGA50 value, boxed in blue, is a typical measure of quality of reconstruction. This value may vary depending on the input data, the parameters of assembly, and the complexity of the parent genome.
 
 <a href="#-genome-assembler">top</a>
 
@@ -131,7 +130,9 @@ A successful assessment will produce the following table.
 
 ### generate\_reads.py
 
-Generates random substrings of fixed length from a circular string with the option for paired-substrings drawn uniformly from an average distance away. Introduces a substitution error with 1% chance. Takes in a string from standard input. Outputs to standard output the number of lines in the first line and substrings ("ss") or substring-pairs ("ss1|ss2|mean\_dist”) in subsequent lines.
+Generates random substrings of fixed length from a circular string with the option for paired-substrings drawn uniformly from an average distance away. Introduces a substitution error with 1% chance. 
+
+Takes in a string from standard input. Outputs to standard output the number of lines in the first line and substrings ("ss") or substring-pairs ("ss1|ss2|mean\_dist”) in subsequent lines.
 
 ```Bash
 # Sample input:
@@ -160,7 +161,9 @@ usage: generate_reads.py [-h] [-p] [-d [DISTANCE]] [-e [ERROR]]
 
 ### assemble.py
 
-Generates contigs of a parent string given a set of substrings or paired substrings. Takes in the number of reads or read-pairs in the first line, then a read ("read") or read-pair ("read1|read2|mean\_dist") on each subsequent line. Outputs a file containing contigs to the subdirectory ./output by default.
+Generates contigs of a parent string given a set of substrings or paired substrings.
+
+Takes in the number of reads or read-pairs in the first line, then a read ("read") or read-pair ("read1|read2|mean\_dist") on each subsequent line. Outputs a file containing contigs to the subdirectory ./output by default.
 
 ```Bash
 # Sample input:
